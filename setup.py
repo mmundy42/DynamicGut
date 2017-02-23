@@ -25,7 +25,7 @@ setup(
     # },
     author='Helena Mendes-Soares, Michael Mundy, Nicholas Chia',
     author_email='microbialmetabolicinteractions@gmail.com',
-    description='DynamicGut',
+    description='DynamicGut: Host-microbiome metabolic interactions',
     long_description=description,
     license='BSD',
     keywords='metabolism biology optimization flux balance analysis fba',
