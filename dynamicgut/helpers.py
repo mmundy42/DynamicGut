@@ -267,12 +267,12 @@ def createGRmatrix(timePoint, pathToFile = './Outputs/Calculations/outputGRs'):
         for line in iTableFile:
             line = line.rstrip()
             line = line.split()
-            genomeAdata.append(str(line[1]))
-            genomeBdata.append(str(line[2]))
-            grAmixdata.append(float(line[3]))
-            grBmixdata.append(float(line[4]))
-            grAsolodata.append(float(line[5]))
-            grBsolodata.append(float(line[6]))
+            genomeAdata.append(str(line[1]))  # A_ID
+            genomeBdata.append(str(line[2]))  # B_ID
+            grAmixdata.append(float(line[3]))  # A_TOGETHER
+            grBmixdata.append(float(line[4]))  # B_TOGETHER
+            grAsolodata.append(float(line[5]))  # A_ALONE
+            grBsolodata.append(float(line[6]))  # B_ALONE
         raw_data_df1 = {'Growth_of': genomeAdata, 'In_presence_of': genomeBdata, 'gr': grAmixdata}
         raw_data_df2 = {'Growth_of': genomeBdata, 'In_presence_of': genomeAdata, 'gr': grBmixdata}
         raw_data_df3 = {'Growth_of': genomeAdata, 'In_presence_of': genomeAdata, 'gr': grAsolodata}
@@ -330,7 +330,10 @@ def createEffectsmatrix(timePoint, pathToFile = './Outputs/Calculations/effects'
 
 ####### Run one iteration of the Leslie-Gower model to determine population size changes #############
 
-def LeslieGowerModel(timePoint, initFile = './Outputs/Calculations/popDensities.txt' , effectsFile = './Outputs/Calculations/effectsMatrix', grMatrixFile = './Outputs/Calculations/GRMatrix', k = 1, timeStep = 0.5):
+def LeslieGowerModel(timePoint, initFile = './Outputs/Calculations/popDensities.txt' ,
+                     effectsFile = './Outputs/Calculations/effectsMatrix',
+                     grMatrixFile = './Outputs/Calculations/GRMatrix',
+                     k = 1, timeStep = 0.5):
     '''
     :param t: timepoint we want to start the simulation from (so Nt and we're going to get Nt+1)
     :param initFile: population densities file
@@ -370,7 +373,9 @@ def LeslieGowerModel(timePoint, initFile = './Outputs/Calculations/popDensities.
     init = np.array(init, dtype = float)
     effects = np.array(effects, dtype = float)
 
-    #actual Effects (21 January 2017). This is the decrease in growth of the focal species due to the others. Previously, we had the total growth of the focal species in the presence of the other, which i don't think made much sense for being in the numeratos.
+    #actual Effects (21 January 2017). This is the decrease in growth of the focal species due to the others.
+    # Previously, we had the total growth of the focal species in the presence of the other, which i don't
+    # think made much sense for being in the numeratos.
     #Actually, I'm still not completely sure about this.
     effects = 1 - effects
 
@@ -463,8 +468,10 @@ def findFluxesPerBiomass(timePoint, exchangeFluxesFile = './Outputs/Calculations
     biomassFluxes = []
 
 
+    # Four column file (1) time point, species ID, exchange reaction ID, flux
     exchangeFluxesFile = exchangeFluxesFile + str(timePoint) + '.txt'
 
+    # Read every line in the file.
     with open(exchangeFluxesFile, 'r') as file:
         for line in file:
             line = line.rstrip()
@@ -472,6 +479,7 @@ def findFluxesPerBiomass(timePoint, exchangeFluxesFile = './Outputs/Calculations
             exchangeFluxes.append(line)
 
 
+    # Get the list of species IDs from column 1
     for line in exchangeFluxes:
         if int(line[0]) == timePoint:
             if line[1] in speciesIDs:
@@ -577,7 +585,8 @@ def newDiet(timePoint = 0, dietFile = './Outputs/Calculations/Diets',popChangesF
         for line in dietNew:
             if change[0] in line[0]:
                 try:
-                    new_value = float(line[-1]) - float(change[-1]) #replaced + by -. Ok, this makes sense. Ok, had change and line in the worng order so everything was getting positive?
+                    # replaced + by -. Ok, this makes sense. Ok, had change and line in the worng order so everything was getting positive?
+                    new_value = float(line[-1]) - float(change[-1])
                     if new_value > 0:
                         new_line = [line[0],line[1],0]
                         new_lines.append(new_line)
@@ -615,7 +624,9 @@ def newDiet(timePoint = 0, dietFile = './Outputs/Calculations/Diets',popChangesF
 def getListOfModels(comFolder):
     '''
     Required by calculateGR function.
-    This function creates a list with all the community models that will be used in the analysis. It creates this list by listing the metabolic models in SBML format present in the user specified folder that contains the community models.
+    This function creates a list with all the community models that will be used in the analysis. It creates
+    this list by listing the metabolic models in SBML format present in the user specified folder that
+    contains the community models.
 
     :param comFolder: path to the folder that contains the community metabolic models.
     :return listOfModelPaths: list object containing the filenames for all the models that will be analysed in the function calculateGR
@@ -1373,7 +1384,11 @@ def createAllPairs(folderLocation = './models/'):
 
 def createEXmodel(exRxns, outputFolder = './Outputs/'):
     '''
-    This function takes the list of exchange reactions in the file EX_rxns.txt and creates a Model object using cobrapy composed of those reactions with the upper bound flux values of 1000, lower bound flux values of -1000, and objective coefficient of 0, and one metabolite as being uptaken by the reaction (stoichiometric coefficient of -1). This is a model composed solely of exchange reactions and it's the model for the extra compartment created for the full community model
+    This function takes the list of exchange reactions in the file EX_rxns.txt and creates a Model
+    object using cobrapy composed of those reactions with the upper bound flux values of 1000,
+    lower bound flux values of -1000, and objective coefficient of 0, and one metabolite as being
+    uptaken by the reaction (stoichiometric coefficient of -1). This is a model composed solely of
+    exchange reactions and it's the model for the extra compartment created for the full community model
 
     :param exRxns: list of exchange reactions of all the species in the community
     :return SBML model with only the exchange reactions. It's the metabolic model of the extra compartment.
@@ -1405,7 +1420,12 @@ def createEXmodel(exRxns, outputFolder = './Outputs/'):
 
 def createReverseEXmodel(exRxns, outputFolder = './Outputs/'):
     '''
-    This function takes the list of exchange reactions in the file EX_rxns.txt and creates a Model object using cobrapy composed of those reactions with the upper bound flux values of 1000, lower bound flux values of -1000, and objective coefficient of 0, and one metabolite as being produced by the reaction (stoichiometric coefficient of 1). This is a model composed solely of exchange reactions and will be used to add the metabolite information to the excahnge reactions of species models in the 2-species community models.
+    This function takes the list of exchange reactions in the file EX_rxns.txt and creates a Model
+    object using cobrapy composed of those reactions with the upper bound flux values of 1000,
+    lower bound flux values of -1000, and objective coefficient of 0, and one metabolite as being
+    produced by the reaction (stoichiometric coefficient of 1). This is a model composed solely of
+    exchange reactions and will be used to add the metabolite information to the excahnge reactions
+    of species models in the 2-species community models.
 
     :param exRxns: list of exchange reactions of all the species in the community
     :return SBML model with only the exchange reactions. It's the metabolic model of the extra compartment.
@@ -1436,12 +1456,15 @@ def createReverseEXmodel(exRxns, outputFolder = './Outputs/'):
 
 def addEXMets2SpeciesEX(reverseEXmodel, speciesModel):
     '''
-    This function takes the model with exchange reactions where the metabolite is produced (output from function createReverseEXmodel) and a species model, and adds the metabolite from the reverse model to the exchange reactions of the species model. For instance:
+    This function takes the model with exchange reactions where the metabolite is produced
+    (output from function createReverseEXmodel) and a species model, and adds the metabolite
+    from the reverse model to the exchange reactions of the species model. For instance:
 
     Reaction :  modelB_EX_cpd11588_e0 got the cpd11588_e0[u] added.
                  'model_B_cpd11588_e0 <=> cpd11588_e0[u]'
 
-    This way, when a compound is exported to the extracellular environment, it is automatically transformed into a form that is common to all members in the community.
+    This way, when a compound is exported to the extracellular environment, it is automatically
+    transformed into a form that is common to all members in the community.
 
     :param reverseEXmodel: cobrapy Model object containing only exchange reactions with the production of their respective metabolites
     :param speciesModel: Model object of a particular species.
@@ -1464,7 +1487,8 @@ def addEXMets2SpeciesEX(reverseEXmodel, speciesModel):
 
 def createCommunityModel(modelFileA, modelFileB, exModelCobra, revModelCobra, comFolder = './Outputs/communityModels'):
     '''
-    This function takes advantage of the outputs of all the functions defined previously to actually piece together the individual species models and the extra compartment model.
+    This function takes advantage of the outputs of all the functions defined previously to actually
+    piece together the individual species models and the extra compartment model.
 
 
     :param modelFileA: path to the metabolic model of species A in SBML format
