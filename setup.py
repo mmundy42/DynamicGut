@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
 requirements = [
-    'cobra>=0.5.4',
-    'six>=1.9.0',
-    'mminte',
-    'mackinac'
+    'cobra>=0.6.0',
+    'six',
+    'mminte>=1.0.2',
+    'mackinac>=0.8.4'
 ]
 
 try:
@@ -20,9 +20,6 @@ setup(
     setup_requires=[],
     install_requires=requirements,
     tests_require=['pytest'],
-    # package_data={
-    #     '': ['VERSION']
-    # },
     author='Helena Mendes-Soares, Michael Mundy, Nicholas Chia',
     author_email='microbialmetabolicinteractions@gmail.com',
     description='DynamicGut: Host-microbiome metabolic interactions',
@@ -30,7 +27,7 @@ setup(
     license='BSD',
     keywords='metabolism biology optimization flux balance analysis fba',
     url='https://github.com/mmundy42/dynamicgut',
-    # download_url='https://pypi.python.org/pypi/mackinac',
+    download_url='https://pypi.python.org/pypi/dynamicgut',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Environment :: Console',
