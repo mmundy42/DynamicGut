@@ -6,7 +6,7 @@ from multiprocessing import Pool, cpu_count
 
 from cobra.core import DictList
 from cobra.io import save_json_model
-from mminte import create_interaction_models, load_model_from_file
+from mminte import create_interaction_models, load_model_from_file, get_all_pairs
 
 
 def prepare_simulation(model_file_names, single_model_folder, pair_model_folder, optimize=False, n_processes=None):
@@ -72,7 +72,7 @@ def prepare_simulation(model_file_names, single_model_folder, pair_model_folder,
     pool.close()
 
     # Create all of the pair models and store in specified folder.
-    pair_file_names = create_interaction_models(single_file_names, pair_model_folder, n_processes=n_processes)
+    pair_file_names = create_interaction_models(get_all_pairs(single_file_names), pair_model_folder, n_processes=n_processes)
     return single_file_names, pair_file_names
 
 
