@@ -79,10 +79,11 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         exchange_fluxes = dict()
         # so apply the diet, then optimize, go through all of the exchange fluxes, build dict, and put in exchange_fluxes
         for model in single_models:
-            exchange_fluxes[model.id] = optimize_single_model(model, diet_file)
+            exchange_fluxes[model.id] = optimize_single_model(model, diet_file_name)
 
         # Calculate the growth rates for each two species model under the current diet conditions.
-        growth_rates = calculate_growth_rates(pair_file_names, diet_file)
+        medium = json.load(open(diet_file_name))
+        growth_rates = calculate_growth_rates(pair_file_names, medium)
         if verbose:
             growth_rates.to_csv(join(time_point_folder, 'rates-{0:04d}.csv'.format(time_point)), index=False)
 
@@ -106,8 +107,8 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
             density.to_csv(join(time_point_folder, 'density-{0:04d}.csv'.format(time_point)))
 
         next_diet_filename = join(time_point_folder, 'diet-{0:04d}.json'.format(time_point))
-        create_next_diet(diet_file, next_diet_filename, exchange_fluxes, density)
-        diet_file = next_diet_filename
+        create_next_diet(diet_file_name, next_diet_filename, exchange_fluxes, density)
+        diet_file_name = next_diet_filename
     return
 
 
@@ -115,7 +116,8 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
 def optimize_single_model(model, medium_filename):
 
     # Optimize the single species model on the medium.
-    apply_medium(model, medium_filename)
+    medium = json.load(open(medium_filename))
+    apply_medium(model, medium)
     solution = model.optimize()
 
     # Get the fluxes for the exchange reactions.
