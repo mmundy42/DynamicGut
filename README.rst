@@ -1,6 +1,9 @@
 DynamicGut
 ==========
 
+DynamicGut simulates microbial interactions in a community over time given a
+specific diet.
+
 Please use the `cobrapy Google
 Group <http://groups.google.com/group/cobra-pie>`_ for help.
 Alternatively, you can use
@@ -35,6 +38,8 @@ the notebook from the virtualenv.
 
 References
 ----------
+
+The three models in the "test/data" folder come from AGORA along with the initial_unhealthy_diet.
 
 1. cobrapy `doi:10.1186/1752-0509-7-74 <http://dx.doi.org/doi:10.1186/1752-0509-7-74>`_
 2. ModelSEED `doi:10.1038/nbt.1672 <http://dx.doi.org/doi:10.1038/nbt.1672>`_
