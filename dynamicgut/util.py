@@ -55,3 +55,25 @@ def check_for_growth(model_file_name):
         summary['message'] = 'Model {0} in file {1} does not produce growth under given conditions' \
                              .format(model.id, model_file_name)
     return summary
+
+
+def get_exchange_reaction_ids(model_list):
+    """ Get the set of unique exchange reaction IDs from a list of models.
+
+    Parameters
+    ----------
+    model_list : list of cobra.core.Model objects
+        Models to get exchange reactions from
+
+    Returns
+    -------
+    set
+        Set of exchange reaction IDs in input models
+    """
+
+    all_exchange_reactions = set()
+    for model in model_list:
+        exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
+        for reaction in exchange_reactions:
+            all_exchange_reactions.add(reaction.id)
+    return all_exchange_reactions
