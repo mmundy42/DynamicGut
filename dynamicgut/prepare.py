@@ -1,5 +1,5 @@
 import six
-from os import listdir, makedirs
+from os import makedirs
 from os.path import join, exists
 from warnings import warn
 from multiprocessing import Pool, cpu_count
@@ -76,31 +76,6 @@ def prepare_simulation(model_file_names, single_model_folder, pair_model_folder,
     return single_file_names, pair_file_names
 
 
-def find_models_in_folder(source_folder):
-    """ Get a list of model file path names based on supported extensions.
-
-        Note that the contents of a file might not be a model so this should
-        only be used for folders where all of the files are model files.
-
-    Parameters
-    ----------
-    source_folder : str
-        Path to folder with source model files
-
-    Returns
-    -------
-    list of str
-        List of path names to source model files
-    """
-
-    source_models = list()
-    for filename in listdir(source_folder):
-        if filename.endswith('.mat') or filename.endswith('.xml') or \
-                filename.endswith('.sbml') or filename.endswith('.json'):
-            source_models.append(join(source_folder, filename))
-    return source_models
-
-
 def optimize_model(model_file_name):
     """ Optimize a model and return summary results.
 
@@ -152,6 +127,7 @@ def add_exchange_reactions(model_file_name, exchange_reactions, model_folder):
         try:
             model.reactions.get_by_id(reaction.id).bounds = (-1000., 1000.)
         except KeyError:
+            # @todo may need to get better on cobra 0.6
             model.add_reaction(reaction)
 
     # Updated model is stored in JSON format.
@@ -181,7 +157,7 @@ def get_exchange_reactions(model_file_names):
         model = load_model_from_file(file_name)
 
         # Get the exchange reactions from the model.
-        exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'))
+        exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
         for reaction in exchange_reactions:
             if not all_exchange_reactions.has_id(reaction.id):
                 all_exchange_reactions.append(copy_exchange_reaction(reaction))
@@ -217,7 +193,6 @@ def copy_exchange_reaction(reaction):
     copy_reaction = reaction.copy()
     copy_reaction.lower_bound = -1000.
     copy_reaction.upper_bound = 1000.
-    copy_reaction.objective_coefficient = 0.
 
     # Confirm metabolite is in extracellular compartment.
     metabolite = six.next(six.iterkeys(copy_reaction.metabolites))
