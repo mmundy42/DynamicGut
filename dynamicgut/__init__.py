@@ -1,2 +1,2 @@
-from .prepare import prepare_simulation, find_models_in_folder
-from .simulate import run_simulation
+from .simulate import prepare, run_simulation
+from .util import find_models_in_folder, check_for_growth, get_exchange_reaction_ids

@@ -57,13 +57,13 @@ def check_for_growth(model_file_name):
     return summary
 
 
-def get_exchange_reaction_ids(model_list):
+def get_exchange_reaction_ids(model_file_names):
     """ Get the set of unique exchange reaction IDs from a list of models.
 
     Parameters
     ----------
-    model_list : list of cobra.core.Model objects
-        Models to get exchange reactions from
+    model_file_names : list of str
+        List of path names to model files
 
     Returns
     -------
@@ -72,6 +72,7 @@ def get_exchange_reaction_ids(model_list):
     """
 
     all_exchange_reactions = set()
+    model_list = [load_model_from_file(name) for name in model_file_names]
     for model in model_list:
         exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
         for reaction in exchange_reactions:
