@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import json
 import logging
+from collections import defaultdict
 
 from mminte import calculate_growth_rates, load_model_from_file, single_species_knockout
 from mminte import create_interaction_models, get_all_pairs
@@ -22,7 +23,7 @@ interaction_columns = ['A_ID', 'B_ID', 'A_TOGETHER', 'A_ALONE', 'A_CHANGE', 'B_T
 density_columns = ['ID', 'DENSITY']
 
 # Column names for single species growth rate data frame.
-single_rate_columns = ['ID', 'RATE']
+single_rate_columns = ['ID', 'STATUS', 'GROWTH_RATE']
 
 # Minimum objective value to show growth.
 NO_GROWTH = 1e-6
@@ -39,7 +40,7 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
     Parameters
     ----------
     single_file_names : list of str
-        Paths to input single species model files
+        Paths to single species model files of community members
     pair_model_folder : str
         Path to folder for storing two species community models
     optimize : bool
@@ -84,6 +85,8 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
                    density_file_name, data_folder, n_processes=None, verbose=True):
     """ Run a simulation over a time interval.
 
+    Do we need a time_step parameter?
+    
     Parameters
     ----------
     time_interval : range
@@ -105,6 +108,9 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     """
 
     # Do the single models need to produce growth on given diet?
+
+    # @todo Does time step need to a parameter?
+    time_step = 0.5
 
     # Get the initial population density values.
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
@@ -141,61 +147,50 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # Run the simulation over the specified time interval.
     for time_point in time_interval:
         # Start this time point.
-        time_point_id = '{0:04d}'.format(time_point)
-        LOGGER.info('TIME POINT %s', time_point_id)
+        time_point_id = '{0:04d}'.format(time_point + 1)
+        LOGGER.info('[%s] STARTED TIME POINT', time_point_id)
         time_point_folder = join(data_folder, 'timepoint-'+time_point_id)
         if not exists(time_point_folder):
             makedirs(time_point_folder)
+        gr_matrix_filename = join(time_point_folder, 'rates_matrix-{0:04d}.csv'.format(time_point))
+        single_rate_file_name = join(time_point_folder, 'single-rates-{0}.csv').format(time_point_id)
+        next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
 
         # load the diet file once and pass around the dict
 
-        # Optimize the single species models to get exchange reaction fluxes. This is used later
-        # to adjust the diet conditions.
-        LOGGER.info('Optimizing single species models ...')
-        single_rate = pd.DataFrame(columns=single_rate_columns)
-        exchange_fluxes = dict()
-        result_list = [pool.apply_async(optimize_single_model, (file_name, initial_diet))
-                       for file_name in single_file_names]
-        for result in result_list:
-            details = result.get()
-            # @todo Check for no growth here?
-            exchange_fluxes[details['model_id']] = details['exchange_fluxes']
-            rate = pd.Series([details['model_id'], details['objective_value']], index=single_rate_columns)
-            single_rate = single_rate.append(rate, ignore_index=True)
-        single_rate.to_csv(join(time_point_folder, 'single-rates-{0}.csv').format(time_point_id), index=False)
-
         # Calculate the growth rates for each two species model under the current diet conditions.
         LOGGER.info('Optimizing pair models ...')
-        medium = json.load(open(diet_file_name))
         # Think need to use optimize_pair_model here, and just return the pd.Series that is need for LG calculation
-        growth_rates = calculate_growth_rates(pair_file_names, medium)
+        growth_rates = calculate_growth_rates(pair_file_names, current_diet)
         if verbose:
-            growth_rates.to_csv(join(time_point_folder, 'rates-{0:04d}.csv'.format(time_point)), index=False)
+            growth_rates.to_csv(join(time_point_folder, 'rates-{0}.csv'.format(time_point_id)), index=False)
 
         effects = growth_rates.apply(get_effects, axis=1)
         if data_folder:
-            effects.to_csv(join(time_point_folder, 'effects-{0:04d}.csv'.format(time_point)))
+            effects.to_csv(join(time_point_folder, 'effects-{0}.csv'.format(time_point_id)))
 
         # Create the growth rate matrix.
         gr_matrix = create_gr_matrix(growth_rates)
-        gr_matrix_filename = join(time_point_folder, 'rates_matrix-{0:04d}.csv'.format(time_point))
         gr_matrix.to_csv(gr_matrix_filename)
 
         # Create the effects matrix.
         effects_matrix = create_effects_matrix(effects)
-        effects_matrix_filename = join(time_point_folder, 'effects_matrix-{0:04d}.csv'.format(time_point))
+        effects_matrix_filename = join(time_point_folder, 'effects_matrix-{0}.csv'.format(time_point_id))
         effects_matrix.to_csv(effects_matrix_filename)
 
         # Run Leslie-Gower algorithm to calculate new population densities.
         LOGGER.info('Calculating population densities ...')
         density = leslie_gower(gr_matrix_filename, effects_matrix_filename, density)
         if data_folder:
-            density.to_csv(join(time_point_folder, 'density-{0:04d}.csv'.format(time_point)))
+            density.to_csv(join(time_point_folder, 'density-{0}.csv'.format(time_point_id)))
 
-        LOGGER.info('Calculating diet conditions for next time point ...')
-        next_diet_filename = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
-        create_next_diet(diet_file_name, next_diet_filename, exchange_fluxes, density)
-        diet_file_name = next_diet_filename
+        # Get the exchange reaction fluxes from optimizing single species models.
+        exchange_fluxes = get_exchange_fluxes(single_file_names, current_diet, pool,
+                                              single_rate_file_name, time_point_id)
+
+        # Create diet conditions for next time point.
+        current_diet = create_next_diet(current_diet, exchange_fluxes, density,
+                                        next_diet_file_name, time_step, time_point_id)
 
     pool.close()
 
@@ -227,15 +222,14 @@ def optimize_single_model(model_file_name, medium):
     details = {'model_id': model.id}
     apply_medium(model, medium)
     solution = model.optimize()
+    details['status'] = solution.status
     details['objective_value'] = solution.objective_value
     exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
     details['exchange_fluxes'] = dict()
     if solution.status == 'optimal':
         for rxn in exchange_reactions:
-            details['exchange_fluxes'][rxn.id] = solution.fluxes[rxn.id]
-    else:
-        for rxn in exchange_reactions:
-            details['exchange_fluxes'][rxn.id] = 0.0
+            if solution.fluxes[rxn.id] != 0.0:
+                details['exchange_fluxes'][rxn.id] = solution.fluxes[rxn.id]
     return details
 
 
@@ -384,12 +378,15 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
     density : pandas.DataFrame
         Current population density for organisms in community
     k : int
-        Something important
+        Something important (upper asymptote in numbers) K = r/a where r is difference between birth-rate 
+        and death-rate and a is a positive constant paper tried K of 100 and 2000
     time_step : float
         Size of time interval where 1 means one hour
     """
 
     # Need to understand the input data. Can it be in a better format?
+
+    # And who is Gower?
     
     # Need consistent order to arrays.
     density_data = []
@@ -420,7 +417,11 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
 
     #get just the biomasses in a vector
     species_ids = []
-    Bt = []
+    Bt = []  # Birth rate at time t? BetaT What about the death rate DeltaT
+
+    # lambdaT = 1 + BetaT - DeltaT equation 2.3
+
+    # why a population density instead of population size?
 
     for line in species_biomasses:
         species_ids.append(line[0])
@@ -433,6 +434,8 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
     #reduce the size of the time step
     # what about when time step is 0?
     Bt = Bt * time_step # birth rate
+
+    # 2 species vs predator-prey
 
     #create a vector of lambdas
     #FIXME Attention: lbds should be equal to 1 + (Bt over the initial population size used for the
@@ -490,105 +493,91 @@ def extract_biomass(gr_matrix_filename):
     return merged
 
 
-def create_next_diet(current_diet_filename, next_diet_filename, exchange_fluxes, density, time_step=0.5):
-    """ Create a diet file by updating the current diet.
+def get_exchange_fluxes(single_file_names, current_diet, pool, single_rate_file_name, time_point_id):
+    """ Optimize the single species models to get exchange reaction fluxes.
+
+    Need more explanation here on why this is done.
+
+    Parameters
+    ----------
+    single_file_names : list of str
+        Paths to single species model files of community members
+    current_diet : dict
+        Dictionary with exchange reaction ID as key and bound as value
+    pool : multiprocessing.Pool
+        Job pool for running optimizations
+    single_rate_file_name : str
+        Path to file for storing growth rates of single species models
+    time_point_id : str
+        ID of current time point
+
+    Returns
+    -------
+    dict
+        Dictionary keyed by model ID of fluxes for exchange reactions
+    """
+
+    LOGGER.info('[%s] Optimizing single species models ...', time_point_id)
+
+    # Optimize all of the single species models on the current diet conditions.
+    single_rate = pd.DataFrame(columns=single_rate_columns)
+    result_list = [pool.apply_async(optimize_single_model, (file_name, current_diet))
+                   for file_name in single_file_names]
+
+    # Get the fluxes for the metabolites that are consumed and produced by each organism.
+    exchange_fluxes = dict()
+    for result in result_list:
+        details = result.get()
+        if details['objective_value'] < NO_GROWTH:
+            LOGGER.warn('[%s] Model %s did not grow on current diet conditions', time_point_id, details['model_id'])
+        exchange_fluxes[details['model_id']] = details['exchange_fluxes']
+        rate = pd.Series([details['model_id'], details['status'], details['objective_value']],
+                         index=single_rate_columns)
+        single_rate = single_rate.append(rate, ignore_index=True)
+    single_rate.to_csv(single_rate_file_name, index=False)
+    return exchange_fluxes
+
+
+def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name, time_step, time_point_id):
+    """ Create diet conditions for next time point from current diet conditions.
     
     Parameters
     ----------
-    current_diet_filename : str
-        X
-    next_diet_filename : str
-        Path to file
+    current_diet : dict
+        Dictionary with exchange reaction ID as key and bound as value
     exchange_fluxes : dict
-        Dictionary keyed by organism ID with exchange fluxes
+        Dictionary keyed by model ID of fluxes for exchange reactions
     density : pandas.DataFrame
-        Population densities
+        Population densities for organisms in community
+    next_diet_file_name: str
+        Path to file for storing diet conditions of next time point
     time_step : float
-        X
+        Need a description here
+    time_point_id : str
+        ID of current time point
+
+    Returns
+    -------
+    dict
+        Dictionary with exchange reaction ID as key and bound as value
     """
 
-    next_medium = json.load(open(current_diet_filename))
+    LOGGER.info('[%s] Calculating diet conditions for next time point ...', time_point_id)
 
-    # Really need to pay attention to signs here
-
-    # new dict with total exchange reaction fluxes
-    # go through each organism exchange reaction flux
-    # for the flux multiple by organism density and time step
-    new_fluxes = dict()
+    # Calculate consumption and production of every metabolite in the diet at
+    # this time point, adjusted by the population density and time step.
+    new_fluxes = defaultdict(float)
     for organism_id in exchange_fluxes:
         row = density.loc[density['ORGANISM']==organism_id]
+        for rxn_id in exchange_fluxes[organism_id]:
+            value = exchange_fluxes[organism_id][rxn_id] * row.iloc[0]['DENSITY'] * time_step
+            new_fluxes[rxn_id] += value
 
-        for reaction_id in exchange_fluxes[organism_id]:
-            value = exchange_fluxes[organism_id][reaction_id] * row.iloc[0]['DENSITY'] * time_step
-            try:
-                new_fluxes[reaction_id] += value
-            except KeyError:
-                new_fluxes[reaction_id] = value
+    # Update the current diet conditions to create the diet conditions for the
+    # next time point.
+    next_diet = current_diet
+    for rxn_id in new_fluxes:
+        next_diet[rxn_id] += new_fluxes[rxn_id]
+    json.dump(next_diet, open(next_diet_file_name, 'w'), indent=4)
 
-    for reaction_id in new_fluxes:
-        value = next_medium[reaction_id] - new_fluxes[reaction_id]
-        next_medium[reaction_id] = value
-
-    json.dump(next_medium, open(next_diet_filename, 'w'))
-
-    return
-
-
-# def saved():
-#     for pair_filename in pair_models:
-#         result = optimize_pair_model(pair_filename, diet_file)
-#
-#         # Go through all of the exchange fluxes in the two single species solutions.
-#         if result['a_id'] not in exchange_fluxes:
-#             exchange_fluxes[result['a_id']] = dict()
-#         # Will need to confirm every single species knockout has same solver status.
-#         if result['a_solution'].status == 'optimal':
-#             for reaction_id in result['a_solution'].x_dict:
-#                 if reaction_id.startswith('EX_'):
-#                     if reaction_id in exchange_fluxes[result['a_id']]:
-#                         if result['a_solution'].x_dict[reaction_id] != exchange_fluxes[result['a_id']][reaction_id]:
-#                             stop = 1
-#                             # warn('{0} {1} != {2}'.format(result['a_id'], result['a_solution'].x_dict[reaction_id],
-#                             #      exchange_fluxes[result['a_id']][reaction_id]))
-#                     else:
-#                         exchange_fluxes[result['a_id']][reaction_id] = result['a_solution'].x_dict[reaction_id]
-#         if result['b_id'] not in exchange_fluxes:
-#             exchange_fluxes[result['b_id']] = dict()
-#         if result['b_solution'].status == 'optimal':
-#             for reaction_id in result['b_solution'].x_dict:
-#                 if reaction_id.startswith('EX_'):
-#                     if reaction_id in exchange_fluxes[result['b_id']]:
-#                         if result['b_solution'].x_dict[reaction_id] != exchange_fluxes[result['b_id']][reaction_id]:
-#                             stop = 1
-#                             # warn('{0} {1} != {2}'.format(result['b_id'],
-#                             #                              result['b_solution'].x_dict[reaction_id],
-#                             #      exchange_fluxes[result['b_id']][reaction_id]))
-#                     else:
-#                         exchange_fluxes[result['b_id']][reaction_id] = result['b_solution'].x_dict[reaction_id]
-#
-#         effects = effects.append(get_effects(result), ignore_index=True)
-#
-#         # This can be simplified but no time now
-#         if result['t_solution'].status == 'optimal' and \
-#                         result['a_solution'].status == 'optimal' and \
-#                         result['b_solution'].status == 'optimal':
-#
-#             rates = Series([result['a_id'], result['b_id'], 'unknown', result['t_solution'].f,
-#                             result['t_solution'].x_dict[result['a_objective']],
-#                             result['t_solution'].x_dict[result['b_objective']],
-#                             result['a_solution'].x_dict[result['a_objective']],
-#                             result['b_solution'].x_dict[result['b_objective']],
-#                             0., 0.], index=growth_rate_columns)
-#         else:
-#             rates = Series([result['a_id'], result['b_id'], 'unknown', 0., 0., 0., 0., 0., 0., 0.],
-#                            index=growth_rate_columns)
-#             if result['t_solution'].status == 'optimal':
-#                 rates.set_value('TOGETHER', result['t_solution'].f)
-#                 rates.set_value('A_TOGETHER', result['t_solution'].x_dict[result['a_objective']])
-#                 rates.set_value('B_TOGETHER', result['t_solution'].x_dict[result['b_objective']])
-#             if result['a_solution'].status == 'optimal':
-#                 rates.set_value('A_ALONE', result['a_solution'].x_dict[result['a_objective']])
-#             if result['b_solution'].status == 'optimal':
-#                 rates.set_value('B_ALONE', result['b_solution'].x_dict[result['b_objective']])
-#         growth_rates = growth_rates.append(rates, ignore_index=True)
-#
+    return next_diet

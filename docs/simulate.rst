@@ -5,19 +5,9 @@ A DynamicGut simulation predicts the population densities of a microbial communi
 over time given initial diet conditions. See :doc:`prepare` for details on creating
 the initial density and diet files.
 
-A simulation runs over a range of time points. At each time point, DynamicGut
-performs the following operations.
-
-Optimize single species models
-------------------------------
-
-Each single species model is optimized using the current diet conditions. Why do
-we do this -- need to have a good explanation.
-
-The results are stored in a file named "single-rates-NNNN.csv" that has this
-format::
-
-    ID,RATE
+A simulation runs over a range of time points. In the file names, "NNNN" is a number
+representing the time point. For example, "0002" represents the second time point.
+At each time point, DynamicGut performs the following operations.
 
 Calculate growth rates of each pair community model
 ---------------------------------------------------
@@ -52,10 +42,27 @@ The results are stored in a file named "density-NNNN.csv" that has this format::
 Calculate new diet conditions
 -----------------------------
 
-Update the diet conditions by adjusting the bounds on the exchange reactions
-based on the single species optimization and new population densities.
+At the end of the time step, the diet conditions are adjusted to reflect the
+consumption and production of metabolites by the members of the community. The
+new diet conditions are used for the calculations in the next time point.
 
-The results are stored in a file named "diet-NNNN.json" that has this format::
+Each single species model is optimized on the current diet conditions for
+a good reason. For each species, the bound on each exchange reaction in the
+current diet is updated by the flux of the exchange reaction adjusted by the
+species population density. Remember that there is variability in the results
+of a flux balance analysis so the values are not exactly the same given the
+same initial diet and population densities.
+
+The results of the single species optimizations are stored in a file named
+"single-rates-NNNN.csv" that has this format::
+
+    ID,STATUS,GROWTH_RATE
+    Bacteroides_thetaiotaomicron_VPI_5482,optimal,0.00199613435042
+    Escherichia_coli_str_K_12_substr_MG1655,optimal,4.0422673957
+    Eubacterium_rectale_ATCC_33656,optimal,3.97592893938
+
+The new diet conditions are stored in a file named "diet-NNNN.json" that has
+this format::
 
     {
         "EX_ascb_L_LPAREN_e_RPAREN_": 0.745862875,
@@ -63,3 +70,4 @@ The results are stored in a file named "diet-NNNN.json" that has this format::
         "EX_fol_LPAREN_e_RPAREN_": 0.1
         ...
     }
+
