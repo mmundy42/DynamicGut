@@ -47,18 +47,18 @@ for each organism in the community is defined in a density file that lists the
 IDs of all of the single species models and the value in CSV format. For example::
 
     ID,DENSITY
-    Bacteroides_thetaiotaomicron_VPI_5482,1e-5
-    Escherichia_coli_str_K_12_substr_MG1655,1e-5
-    Eubacterium_rectale_ATCC_33656,1e-5
+    Btheta,1e-5
+    Ecoli,1e-5
+    Erectale,1e-5
 
-Construct pair community models
--------------------------------
+Construct two species community models
+--------------------------------------
 
 When running a simulation, DynamicGut optimizes a two species community model
 for every pair of organisms in the community under the current nutrient
 conditions. As input, you provide the single species models for each member of
 the community. Each single species model should produce growth using the medium
-set in the input model. The ``prepare()`` function creates pair (two species)
+set in the input model. The ``prepare()`` function creates two species community
 models from the single species models and stores the pair model files in a folder.
 You can optionally have the ``prepare()`` function confirm that the single species
 models produce growth. For example::

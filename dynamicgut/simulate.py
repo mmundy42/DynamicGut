@@ -8,7 +8,7 @@ import json
 import logging
 from collections import defaultdict
 
-from mminte import calculate_growth_rates, load_model_from_file, single_species_knockout
+from mminte import load_model_from_file, single_species_knockout
 from mminte import create_interaction_models, get_all_pairs
 from mminte.interaction_worker import compute_growth_rates, growth_rate_columns, apply_medium
 
@@ -17,16 +17,17 @@ from .util import check_for_growth, get_exchange_reaction_ids
 # Logger for this module
 LOGGER = logging.getLogger(__name__)
 
-interaction_columns = ['A_ID', 'B_ID', 'A_TOGETHER', 'A_ALONE', 'A_CHANGE', 'B_TOGETHER', 'B_ALONE', 'B_CHANGE']
-
-# Column names for population density data frame.
-density_columns = ['ID', 'DENSITY']
+# Column names for two species community growth rate data frame.
+pair_rate_columns = ['A_ID', 'B_ID', 'A_TOGETHER', 'A_ALONE', 'A_CHANGE', 'B_TOGETHER', 'B_ALONE', 'B_CHANGE']
 
 # Column names for single species growth rate data frame.
 single_rate_columns = ['ID', 'STATUS', 'GROWTH_RATE']
 
+# Column names for population density data frame.
+density_columns = ['ID', 'DENSITY']
+
 # Minimum objective value to show growth.
-NO_GROWTH = 1e-6
+NO_GROWTH = 1e-13
 
 # check on objectives in Agora models and which one got picked when building pair model
 
@@ -73,11 +74,11 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
         makedirs(pair_model_folder)
 
     # Create all of the pair models and store in specified folder.
-    LOGGER.info('Started creating pair models')
+    LOGGER.info('Started creating two species community models')
     pair_file_names = create_interaction_models(get_all_pairs(single_file_names),
                                                 pair_model_folder,
                                                 n_processes=n_processes)
-    LOGGER.info('Finished creating pair models')
+    LOGGER.info('Finished creating two species community models')
     return pair_file_names
 
 
@@ -113,6 +114,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     time_step = 0.5
 
     # Get the initial population density values.
+    # @todo Somewhere need to confirm that IDs in density match IDs in single models
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
     if not set(density_columns).issubset(density.columns):
         raise ValueError('Required columns {0} not available in population density file {1}'
@@ -152,34 +154,31 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         time_point_folder = join(data_folder, 'timepoint-'+time_point_id)
         if not exists(time_point_folder):
             makedirs(time_point_folder)
+        pair_rate_file_name = join(time_point_folder, 'pair-rates-{0}.csv'.format(time_point_id))
         gr_matrix_filename = join(time_point_folder, 'rates_matrix-{0:04d}.csv'.format(time_point))
         single_rate_file_name = join(time_point_folder, 'single-rates-{0}.csv').format(time_point_id)
         next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
 
-        # load the diet file once and pass around the dict
-
         # Calculate the growth rates for each two species model under the current diet conditions.
-        LOGGER.info('Optimizing pair models ...')
-        # Think need to use optimize_pair_model here, and just return the pd.Series that is need for LG calculation
-        growth_rates = calculate_growth_rates(pair_file_names, current_diet)
-        if verbose:
-            growth_rates.to_csv(join(time_point_folder, 'rates-{0}.csv'.format(time_point_id)), index=False)
+        growth_rates = calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_name, time_point_id)
 
-        effects = growth_rates.apply(get_effects, axis=1)
-        if data_folder:
-            effects.to_csv(join(time_point_folder, 'effects-{0}.csv'.format(time_point_id)))
+        # Accumulate single species growth rates into a dict (confirm get the same answer every time.
+
+        # effects = growth_rates.apply(get_effects, axis=1)
+        # if data_folder:
+        #     effects.to_csv(join(time_point_folder, 'effects-{0}.csv'.format(time_point_id)))
 
         # Create the growth rate matrix.
         gr_matrix = create_gr_matrix(growth_rates)
         gr_matrix.to_csv(gr_matrix_filename)
 
         # Create the effects matrix.
-        effects_matrix = create_effects_matrix(effects)
+        effects_matrix = create_effects_matrix(growth_rates)
         effects_matrix_filename = join(time_point_folder, 'effects_matrix-{0}.csv'.format(time_point_id))
         effects_matrix.to_csv(effects_matrix_filename)
 
         # Run Leslie-Gower algorithm to calculate new population densities.
-        LOGGER.info('Calculating population densities ...')
+        LOGGER.info('[%s] Calculating population densities ...', time_point_id)
         density = leslie_gower(gr_matrix_filename, effects_matrix_filename, density)
         if data_folder:
             density.to_csv(join(time_point_folder, 'density-{0}.csv'.format(time_point_id)))
@@ -197,51 +196,20 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     return
 
 
-def optimize_single_model(model_file_name, medium):
-    """ Optimize a single species model on a given medium.
-    
-    Note that we chose to read the model from a file each time instead of loading
-    the model into memory once at the beginning of the simulation. This lowers
-    the memory requirements of the simulation but is slower because of repeated 
-    file system accesses.
-    
-    Parameters
-    ----------
-    model_file_name : cobra.core.Model
-        Single species model to be optimized
-    medium : dict
-        Dictionary with exchange reaction ID as key and bound as value
-        
-    Returns
-    -------
-    dict
-        Dictionary with details on solution
-    """
-
-    model = load_model_from_file(model_file_name)
-    details = {'model_id': model.id}
-    apply_medium(model, medium)
-    solution = model.optimize()
-    details['status'] = solution.status
-    details['objective_value'] = solution.objective_value
-    exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
-    details['exchange_fluxes'] = dict()
-    if solution.status == 'optimal':
-        for rxn in exchange_reactions:
-            if solution.fluxes[rxn.id] != 0.0:
-                details['exchange_fluxes'][rxn.id] = solution.fluxes[rxn.id]
-    return details
-
-
-def optimize_pair_model(pair_filename, media_filename):
+def optimize_pair_model(model_file_name, medium):
     """ Optimize a two species community model.
 
+    This function is used as a target function in a multiprocessing pool.
+
+    Note that the model is read from a file each time so there is no need to revert
+    the model after the optimization.
+
     Parameters
     ----------
-    pair_filename : str
+    model_file_name : str
         Path to two species community model file
-    media_filename : str
-        Path to file with exchange reaction bounds for media
+    medium : dict
+        Dictionary with exchange reaction ID as key and bound as value
 
     Returns
     -------
@@ -249,72 +217,104 @@ def optimize_pair_model(pair_filename, media_filename):
         Growth rate details for interaction between two species in pair
     """
 
-    # Load the model and apply the media to it.
-    pair_model = load_model_from_file(pair_filename)
-    apply_medium(pair_model, media_filename)
-
     # Optimize the model with two species together, one species knocked out, and
     # other species knocked out.
-    result = dict()
-    result['a_id'] = pair_model.notes['species'][0]['id']
-    result['a_objective'] = pair_model.notes['species'][0]['objective']
-    result['b_id'] = pair_model.notes['species'][1]['id']
-    result['b_objective'] = pair_model.notes['species'][1]['objective']
-    result['t_solution'] = pair_model.optimize()
-    result['a_solution'] = single_species_knockout(pair_model, result['b_id'])
-    result['b_solution'] = single_species_knockout(pair_model, result['a_id'])
+    pair_model = load_model_from_file(model_file_name)
+    apply_medium(pair_model, medium)
 
-    return result
+    a_id = pair_model.notes['species'][0]['id']
+    a_objective = pair_model.notes['species'][0]['objective']
+    b_id = pair_model.notes['species'][1]['id']
+    b_objective = pair_model.notes['species'][1]['objective']
 
+    t_solution = pair_model.optimize()
+    a_solution = single_species_knockout(pair_model, b_id)
+    b_solution = single_species_knockout(pair_model, a_id)
 
-def get_effects(row):
-    """
-    """
+    # Round very small growth rates to zero.
+    if t_solution.fluxes[a_objective] < NO_GROWTH:
+        t_solution.fluxes[a_objective] = 0.
+    if t_solution.fluxes[b_objective] < NO_GROWTH:
+        t_solution.fluxes[b_objective] = 0.
+    if a_solution.fluxes[a_objective] < NO_GROWTH:
+        a_solution.fluxes[a_objective] = 0.
+    if b_solution.fluxes[b_objective] < NO_GROWTH:
+        b_solution.fluxes[b_objective] = 0.
 
-    a_alone = row['A_ALONE']
-    if a_alone == 0.0:
-        a_alone = float(1e-25)
-    a_percent_change = row['A_TOGETHER'] / a_alone
-    b_alone = row['B_ALONE']
-    if b_alone == 0.0:
-        b_alone = float(1e-25)
-    b_percent_change = row['B_TOGETHER'] / b_alone
-    details = pd.Series([row['A_ID'], row['B_ID'], row['A_TOGETHER'], row['A_ALONE'], a_percent_change,
-                         row['B_TOGETHER'], row['B_ALONE'], b_percent_change], index=interaction_columns)
-    return details
+    # Evaluate the interaction between the two species.
+    if t_solution.status == 'optimal' and a_solution.status == 'optimal' and b_solution.status == 'optimal':
+        a_alone = a_solution.fluxes[a_objective]
+        if a_alone == 0.0:
+            a_alone = float(1e-25)
+        a_together = t_solution.fluxes[a_objective]
+        a_percent_change = a_together / a_alone
 
-    # if results['t_solution'].status == 'optimal' and \
-    #     results['a_solution'].status == 'optimal' and \
-    #     results['b_solution'].status == 'optimal':
-    #     a_alone = results['a_solution'].x_dict[results['a_objective']]
-    #     if a_alone == 0.0:
-    #         a_alone = float(1e-25)
-    #     a_together = results['t_solution'].x_dict[results['a_objective']]
-    #     a_percent_change = a_together / a_alone
-    #
-    #     b_alone = results['b_solution'].x_dict[results['b_objective']]
-    #     if b_alone == 0.0:
-    #         b_alone = float(1e-25)
-    #     b_together = results['t_solution'].x_dict[results['b_objective']]
-    #     b_percent_change = b_together / b_alone
-    #     details = Series([results['a_id'], results['b_id'], a_together, a_alone, a_percent_change,
-    #                       b_together, b_alone, b_percent_change], index=interaction_columns)
-    # else:
-    #     details = Series([results['a_id'], results['b_id'], 'None', 0., 0., 0., 0., 0., 0., 0.],
-    #                      index=growth_rate_columns)
-    #     if results['t_solution'].status == 'optimal':
-    #         details.set_value('TOGETHER', results['t_solution'].f)
-    #         details.set_value('A_TOGETHER', results['t_solution'].x_dict[results['a_objective']])
-    #         details.set_value('B_TOGETHER', results['t_solution'].x_dict[results['b_objective']])
-    #     if results['a_solution'].status == 'optimal':
-    #         details.set_value('A_ALONE', results['a_solution'].x_dict[results['a_objective']])
-    #     if results['b_solution'].status == 'optimal':
-    #         details.set_value('B_ALONE', results['b_solution'].x_dict[results['b_objective']])
+        b_alone = b_solution.fluxes[b_objective]
+        if b_alone == 0.0:
+            b_alone = float(1e-25)
+        b_together = t_solution.fluxes[b_objective]
+        b_percent_change = b_together / b_alone
+        details = pd.Series([a_id, b_id, a_together, a_alone, a_percent_change,
+                             b_together, b_alone, b_percent_change],
+                            index=pair_rate_columns)
+    else:
+        details = pd.Series([a_id, b_id, 0., 0., 0., 0., 0., 0.], index=pair_rate_columns)
+        if t_solution.status == 'optimal':
+            details.set_value('A_TOGETHER', t_solution.fluxes[a_objective])
+            details.set_value('B_TOGETHER', t_solution.fluxes[b_objective])
+        if a_solution.status == 'optimal':
+            details.set_value('A_ALONE', a_solution.fluxes[a_objective])
+        if b_solution.status == 'optimal':
+            details.set_value('B_ALONE', b_solution.fluxes[b_objective])
+        # @todo Need to rework this to get more data. what if 2 of 3 solutions are optimal?
 
     return details
+
+
+def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_name, time_point_id):
+    """ Optimize the two species community models to get growth rates.
+
+    Parameters
+    ----------
+    pair_file_names : list of str
+        Paths to two species community model files
+    current_diet : dict
+        Dictionary with exchange reaction ID as key and bound as value
+    pool : multiprocessing.Pool
+        Job pool for running optimizations
+    pair_rate_file_name : str
+        Path to file for storing growth rates of two species community models
+    time_point_id : str
+        ID of current time point
+
+    Returns
+    -------
+    pandas.DataFrame
+        Growth rates
+    dict
+        Single species growth rates
+    """
+
+    LOGGER.info('[%s] Optimizing two species community models ...', time_point_id)
+
+    # Optimize all of the two species community models on the current diet conditions.
+    result_list = [pool.apply_async(optimize_pair_model, (file_name, current_diet))
+                   for file_name in pair_file_names]
+
+    # Build a DataFrame with the pair growth rates.
+    pair_rate = pd.DataFrame(columns=pair_rate_columns)
+    for result in result_list:
+        pair_rate = pair_rate.append(result.get(), ignore_index=True)
+    pair_rate.to_csv(pair_rate_file_name, index=False)
+
+    # for index, row in growth_rates.iterrows():
+    return pair_rate
 
 
 def create_gr_matrix(growth_rates):
+    # Matrix has growth rate of species alone on diagonal, species in the presence of other species
+    # in the rest of the cells. Column 0 is an organism ID, row 0 is an organism ID
+
     # But really just need the growth rate of the organism on the diagonal.
     genomeAdata = []
     genomeBdata = []
@@ -394,6 +394,8 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
         density_data.append(row['DENSITY'])
     initial_density = np.array(density_data, dtype=float)
 
+    # Gotta be careful that organism IDs all match up.
+
     # Gotta be a better way to do this but column names are different based on organisms in simulation.
     effects_data = []
     with open(effects_matrix_filename, 'r') as handle:
@@ -402,6 +404,8 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
             fields = line.strip().split(',')
             effects_data.append(fields[1:])
     effects = np.array(effects_data, dtype=float)
+    # So "effects" is a matrix with row 0 and column 0 removed from the input file (which started as a DataFrame
+    # It is really important that everything is in the right order
 
     # Actual Effects (21 January 2017). This is the decrease in growth of the focal species due to the others.
     # Previously, we had the total growth of the focal species in the presence of the other, which i don't
@@ -414,9 +418,10 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
 
     # Get the information relative to how much biomass is created per species under the present conditions (Bt)
     species_biomasses = extract_biomass(gr_matrix_filename) #remember that column 1 is the speciesIDs and column 2 is biomasses
+    # This is a complicated way to get the growth rate of something?
 
     #get just the biomasses in a vector
-    species_ids = []
+    species_ids = [] # This is used to build the output data frame
     Bt = []  # Birth rate at time t? BetaT What about the death rate DeltaT
 
     # lambdaT = 1 + BetaT - DeltaT equation 2.3
@@ -429,7 +434,7 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
 
     species_ids = species_ids[1:]
     Bt = Bt[1:]
-    Bt = np.array(Bt, dtype=float)
+    Bt = np.array(Bt, dtype=float) # This is a numpy array of single species growth rate on current diet
 
     #reduce the size of the time step
     # what about when time step is 0?
@@ -490,7 +495,51 @@ def extract_biomass(gr_matrix_filename):
         new_line = [speciesIDs[i],col2[i]]
         merged.append(new_line)
 
+    # So merged is a list of lists, first row is a header with 'SpeciesIDs" and 'Biomasses'
+    # all remaining rows are the model ID and growth rate of species by itself in current diet
     return merged
+
+
+def optimize_single_model(model_file_name, medium):
+    """ Optimize a single species model on a given medium.
+
+    This function is used as a target function in a multiprocessing pool.
+
+    Note that we chose to read the model from a file each time instead of loading
+    the model into memory once at the beginning of the simulation. This lowers
+    the memory requirements of the simulation and there is no need to revert the
+    model after the optimization. But there are more accesses of the file system.
+
+    Parameters
+    ----------
+    model_file_name : cobra.core.Model
+        Single species model to be optimized
+    medium : dict
+        Dictionary with exchange reaction ID as key and bound as value
+
+    Returns
+    -------
+    dict
+        Dictionary with details on solution
+    """
+
+    # Confirmed that growth rates are the same as when run solo in pair model.
+    # Are we only doing this to get the exchange reaction fluxes which are
+    # unavailable from mminte output?
+
+    model = load_model_from_file(model_file_name)
+    details = {'model_id': model.id}
+    apply_medium(model, medium)
+    solution = model.optimize()
+    details['status'] = solution.status
+    details['objective_value'] = solution.objective_value
+    exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
+    details['exchange_fluxes'] = dict()
+    if solution.status == 'optimal':
+        for rxn in exchange_reactions:
+            if solution.fluxes[rxn.id] != 0.0:
+                details['exchange_fluxes'][rxn.id] = solution.fluxes[rxn.id]
+    return details
 
 
 def get_exchange_fluxes(single_file_names, current_diet, pool, single_rate_file_name, time_point_id):

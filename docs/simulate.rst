@@ -5,19 +5,22 @@ A DynamicGut simulation predicts the population densities of a microbial communi
 over time given initial diet conditions. See :doc:`prepare` for details on creating
 the initial density and diet files.
 
-A simulation runs over a range of time points. In the file names, "NNNN" is a number
-representing the time point. For example, "0002" represents the second time point.
+A simulation runs over a range of time points. In the file names below, "NNNN" is a
+number identifying the time point. For example, "0002" is for the second time point.
 At each time point, DynamicGut performs the following operations.
 
-Calculate growth rates of each pair community model
----------------------------------------------------
+Calculate growth rates of every pair in community
+-------------------------------------------------
 
-Each pair community model is optimized three times: (1) with both pairs, (2) with
+Each two species community model is optimized three times: (1) with both species, (2) with
 first species knocked out, and (3) with second species knocked out.
 
 The results are stored in a file named "pair-rates-NNNN.csv" that has this format::
 
-    GROWTH_OF,X,Y,Z
+    A_ID,B_ID,A_TOGETHER,A_ALONE,A_CHANGE,B_TOGETHER,B_ALONE,B_CHANGE
+    Btheta,Ecoli,10.1946336186,0.00199613435042,5107.18810908,0.0,4.0422673957,0.0
+    Btheta,Erectale,0.00199613435042,0.00199613435042,1.0,3.97515044271,3.97592893938,0.999804197539
+    Ecoli,Erectale,4.0422673957,4.0422673957,1.0,0.0,3.97592893938,0.0
 
 Calculate the effects of growth rates
 -------------------------------------
