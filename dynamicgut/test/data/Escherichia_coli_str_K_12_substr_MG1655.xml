@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sbml xmlns="http://www.sbml.org/sbml/level3/version1/core" xmlns:fbc="http://www.sbml.org/sbml/level3/version1/fbc/version2" level="3" version="1" fbc:required="false">
-  <model metaid="Escherichia_coli_str_K_12_substr_MG1655" id="Escherichia_coli_str_K_12_substr_MG1655" name="Escherichia coli str. K-12 substr. MG1655" fbc:strict="true">
+  <model metaid="Escherichia_coli_str_K_12_substr_MG1655" id="Ecoli" name="Escherichia coli str. K-12 substr. MG1655" fbc:strict="true">
     <notes>
       <body xmlns="http://www.w3.org/1999/xhtml">
         <div>

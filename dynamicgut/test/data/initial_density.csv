@@ -1,4 +1,4 @@
-,ID,DENSITY
-0,Bacteroides_thetaiotaomicron_VPI_5482,1e-5
-1,Escherichia_coli_str_K_12_substr_MG1655,1e-5
-2,Eubacterium_rectale_ATCC_33656,1e-5
+ID,DENSITY
+Btheta,1e-5
+Ecoli,1e-5
+Erectale,1e-5
