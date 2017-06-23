@@ -162,6 +162,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         if not exists(time_point_folder):
             makedirs(time_point_folder)
         pair_rate_file_name = join(time_point_folder, 'pair-rates-{0}.csv'.format(time_point_id))
+        effects_matrix_file_name = join(time_point_folder, 'effects-matrix-{0}.csv'.format(time_point_id))
         gr_matrix_filename = join(time_point_folder, 'rates_matrix-{0:04d}.csv'.format(time_point))
         single_rate_file_name = join(time_point_folder, 'single-rates-{0}.csv').format(time_point_id)
         next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
@@ -180,13 +181,11 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         gr_matrix.to_csv(gr_matrix_filename)
 
         # Create the effects matrix.
-        effects_matrix = create_effects_matrix(growth_rates)
-        effects_matrix_filename = join(time_point_folder, 'effects_matrix-{0}.csv'.format(time_point_id))
-        effects_matrix.to_csv(effects_matrix_filename)
+        effects_matrix = create_effects_matrix(growth_rates, effects_matrix_file_name, time_point_id)
 
         # Run Leslie-Gower algorithm to calculate new population densities.
         LOGGER.info('[%s] Calculating population densities ...', time_point_id)
-        density = leslie_gower(gr_matrix_filename, effects_matrix_filename, density)
+        density = leslie_gower(gr_matrix_filename, effects_matrix, density)
         if data_folder:
             density.to_csv(join(time_point_folder, 'density-{0}.csv'.format(time_point_id)))
 
@@ -367,36 +366,57 @@ def create_gr_matrix(growth_rates):
     return new_df
 
 
-def create_effects_matrix(effects):
-    genomeAdata = []
-    genomeBdata = []
-    percentChangeA = []
-    percentChangeB = []
-    for index, row in effects.iterrows():
-        genomeAdata.append(row['A_ID'])
-        genomeBdata.append(row['B_ID'])
-        percentChangeA.append(row['A_CHANGE'])
-        percentChangeB.append(row['B_CHANGE'])
-    raw_data_df1 = {'Percent_change_in_growth_of': genomeAdata, 'Because_of': genomeBdata, 'change': percentChangeA}
-    raw_data_df2 = {'Percent_change_in_growth_of': genomeBdata, 'Because_of': genomeAdata, 'change': percentChangeB}
-    df1 = pd.DataFrame(raw_data_df1, columns=['Percent_change_in_growth_of', 'Because_of', 'change'])
-    df2 = pd.DataFrame(raw_data_df2, columns=['Percent_change_in_growth_of', 'Because_of', 'change'])
-    new_df = df1
-    new_df = new_df.append(df2, ignore_index=True)
-    new_df = new_df.pivot_table(index='Percent_change_in_growth_of', columns='Because_of', values='change')
-    new_df = new_df.replace(np.nan,'1', regex = True)
-    return new_df
+def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
+    """ Create an effects matrix from growth rate data frame of all pairs.
+
+    Each cell in an effects matrix is the effect on the growth of one species in
+    the presence of another species. A row gives the percent change in growth of
+    a specific species in the presence of all of the other species in the community.
+    The diagonal in the matrix is always 1.
+
+    Parameters
+    ----------
+    pair_rate : pandas.DataFrame
+        Growth rate details for all pairs in the community
+    effects_matrix_file_name : str
+        Path to file for storing effects matrix
+    time_point_id : str
+        ID of current time point
+
+    Returns
+    -------
+    pandas.DataFrame
+        Effect of one species on the growth of another species
+    """
+
+    LOGGER.info('[%s] Creating effects matrix ...', time_point_id)
+
+    # Extract the species model IDs and percent change values from the input
+    # data frame.
+    a_id = pair_rate['A_ID'].tolist()
+    b_id = pair_rate['B_ID'].tolist()
+    a_change = pair_rate['A_CHANGE'].tolist()
+    b_change = pair_rate['B_CHANGE'].tolist()
+
+    # Build the output data frame.
+    raw = pd.DataFrame({'PERCENT_CHANGE': a_id, 'BECAUSE_OF': b_id, 'CHANGE': a_change})
+    raw = raw.append(pd.DataFrame({'PERCENT_CHANGE': b_id, 'BECAUSE_OF': a_id, 'CHANGE': b_change}),
+                     ignore_index=True)
+    effects = raw.pivot_table(index='PERCENT_CHANGE', columns='BECAUSE_OF', values='CHANGE')
+    effects = effects.replace(np.nan, 1.0, regex=True)
+    effects.to_csv(effects_matrix_file_name)
+    return effects
 
 
-def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time_step=0.5):
+def leslie_gower(gr_matrix_filename, effects_matrix, density, k=1, time_step=0.5):
     """ Run Leslie-Gower algorithm to update population density of each organism.
     
     Parameters
     ----------
     gr_matrix_filename : str
         Path to 
-    effects_matrix_filename : str
-        Path to 
+    effects_matrix : pandas.DataFrame
+         Effect of one species on the growth of another species
     density : pandas.DataFrame
         Current population density for organisms in community
     k : int
@@ -418,15 +438,8 @@ def leslie_gower(gr_matrix_filename, effects_matrix_filename, density, k=1, time
 
     # Gotta be careful that organism IDs all match up.
 
-    # Gotta be a better way to do this but column names are different based on organisms in simulation.
-    effects_data = []
-    with open(effects_matrix_filename, 'r') as handle:
-        handle.readline()
-        for line in handle:
-            fields = line.strip().split(',')
-            effects_data.append(fields[1:])
-    effects = np.array(effects_data, dtype=float)
-    # So "effects" is a matrix with row 0 and column 0 removed from the input file (which started as a DataFrame
+    effects = effects_matrix.values  # Convert to numpy.array
+
     # It is really important that everything is in the right order
 
     # Actual Effects (21 January 2017). This is the decrease in growth of the focal species due to the others.

@@ -22,16 +22,24 @@ The results are stored in a file named "pair-rates-NNNN.csv" that has this forma
     Btheta,Erectale,0.00199613435042,0.00199613435042,1.0,3.97515044271,3.97592893938,0.999804197539
     Ecoli,Erectale,4.0422673957,4.0422673957,1.0,0.0,3.97592893938,0.0
 
-Calculate the effects of growth rates
--------------------------------------
+Calculate an effects matrix from growth rates
+---------------------------------------------
 
-The effect is the percent change in growth of one species in the presence of
-another species.
+Each cell in an effects matrix is the effect on the growth of one species in
+the presence of another species. A row gives the percent change in growth of
+one species in the presence of all of the other species in the community. The
+diagonal in the matrix is always 1.
 
 The results are stored in a file named "effects-matrix-NNN.csv" that has this
 format::
 
-    PERCENT_CHANGE,X,Y,Z
+    PERCENT_CHANGE,Btheta,Ecoli,Erectale
+    Btheta,1.0,5107.18810916,1.0
+    Ecoli,0.0,1.0,1.0
+    Erectale,0.999804197539,0.0,1.0
+
+Note the column headers are the model IDs and are different based on the members
+in the community.
 
 Calculate new population densities
 ----------------------------------
