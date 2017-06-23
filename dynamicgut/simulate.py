@@ -167,7 +167,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
 
         # Calculate the growth rates for each two species model under the current diet conditions.
-        growth_rates = calculate_growth_rates(pair_file_names, diet, pool, pair_rate_file_name, time_point_id)
+        growth_rates, alone = calculate_growth_rates(pair_file_names, diet, pool, pair_rate_file_name, time_point_id)
 
         # Accumulate single species growth rates into a dict (confirm get the same answer every time.
 
@@ -313,8 +313,24 @@ def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_n
         pair_rate = pair_rate.append(result.get(), ignore_index=True)
     pair_rate.to_csv(pair_rate_file_name, index=False)
 
-    # for index, row in growth_rates.iterrows():
-    return pair_rate
+    # Build a dictionary with single species growth rates and confirm that the
+    # values are consistent.
+    alone_rate = dict()
+    for index, row in pair_rate.iterrows():
+        if row['A_ID'] in alone_rate:
+            if not np.isclose(row['A_ALONE'], alone_rate[row['A_ID']]):
+                warn('Model {0} has inconsistent growth rates: {1} vs {2}'
+                     .format(row['A_ID'], row['A_ALONE'], alone_rate[row['A_ID']]))
+        else:
+            alone_rate[row['A_ID']] = row['A_ALONE']
+        if row['B_ID'] in alone_rate:
+            if not np.isclose(row['B_ALONE'], alone_rate[row['B_ID']]):
+                warn('Model {0} has inconsistent growth rates: {1} vs {2}'
+                     .format(row['B_ID'], row['B_ALONE'], alone_rate[row['B_ID']]))
+        else:
+            alone_rate[row['B_ID']] = row['B_ALONE']
+
+    return pair_rate, alone_rate
 
 
 def create_gr_matrix(growth_rates):
