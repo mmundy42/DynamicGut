@@ -114,23 +114,31 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     time_step = 0.5
 
     # Get the initial population density values.
-    # @todo Somewhere need to confirm that IDs in density match IDs in single models
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
     if not set(density_columns).issubset(density.columns):
         raise ValueError('Required columns {0} not available in population density file {1}'
                          .format(density_columns, density_file_name))
 
     # Get the initial diet conditions.
-    initial_diet = json.load(open(diet_file_name))
+    diet = json.load(open(diet_file_name))
 
     # Confirm that the initial diet includes every exchange reaction from the
     # single species models.
-    model_exchanges = get_exchange_reaction_ids(single_file_names)
-    initial_exchanges = set(initial_diet.keys())
+    model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
+    initial_exchanges = set(diet.keys())
     if not initial_exchanges.issuperset(model_exchanges):
         raise ValueError('Diet file {0} does not contain all exchange reactions from single species models'
                          .format(diet_file_name))
     # @todo Warning if initial exchanges has more reactions than models?
+
+    # Confirm the model IDs in the initial density file match the model IDs in the
+    # list of single species models.
+    if density.shape[0] != len(model_ids):
+        raise ValueError('Number of organisms ({0}) in initial density file does not match '
+                         'number of single species models ({1})'.format(density.shape[0], len(model_ids)))
+    if density.loc[density['ID'].isin(model_ids)].shape[0] != len(model_ids):
+        raise ValueError('One or more model IDs in initial density file do not match '
+                         'model IDs in single species models')
 
     # Create a job pool for running optimizations.
     if n_processes is None:
@@ -138,13 +146,12 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     pool = Pool(n_processes)
 
     # Confirm input single species models produce growth using initial diet conditions.
-    result_list = [pool.apply_async(optimize_single_model, (file_name, initial_diet))
+    result_list = [pool.apply_async(optimize_single_model, (file_name, diet))
                    for file_name in single_file_names]
     for result in result_list:
         details = result.get()
         if details['objective_value'] < NO_GROWTH:
             raise ValueError('Model {0} does not grow using initial diet'.format(details['model_id']))
-    current_diet = initial_diet
 
     # Run the simulation over the specified time interval.
     for time_point in time_interval:
@@ -160,7 +167,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
 
         # Calculate the growth rates for each two species model under the current diet conditions.
-        growth_rates = calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_name, time_point_id)
+        growth_rates = calculate_growth_rates(pair_file_names, diet, pool, pair_rate_file_name, time_point_id)
 
         # Accumulate single species growth rates into a dict (confirm get the same answer every time.
 
@@ -184,12 +191,11 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
             density.to_csv(join(time_point_folder, 'density-{0}.csv'.format(time_point_id)))
 
         # Get the exchange reaction fluxes from optimizing single species models.
-        exchange_fluxes = get_exchange_fluxes(single_file_names, current_diet, pool,
+        exchange_fluxes = get_exchange_fluxes(single_file_names, diet, pool,
                                               single_rate_file_name, time_point_id)
 
         # Create diet conditions for next time point.
-        current_diet = create_next_diet(current_diet, exchange_fluxes, density,
-                                        next_diet_file_name, time_step, time_point_id)
+        diet = create_next_diet(diet, exchange_fluxes, density, next_diet_file_name, time_step, time_point_id)
 
     pool.close()
 
