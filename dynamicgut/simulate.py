@@ -108,9 +108,8 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         Store intermediate data generated at each time point
     """
 
-    # Do the single models need to produce growth on given diet?
-
     # @todo Does time step need to a parameter?
+    # @todo Does time step need a validation (e.g. time step is 0)?
     time_step = 0.5
 
     # Get the initial population density values.
@@ -134,11 +133,12 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # Confirm the model IDs in the initial density file match the model IDs in the
     # list of single species models.
     if density.shape[0] != len(model_ids):
-        raise ValueError('Number of organisms ({0}) in initial density file does not match '
+        raise ValueError('Number of species ({0}) in initial density file does not match '
                          'number of single species models ({1})'.format(density.shape[0], len(model_ids)))
     if density.loc[density['ID'].isin(model_ids)].shape[0] != len(model_ids):
         raise ValueError('One or more model IDs in initial density file do not match '
                          'model IDs in single species models')
+    # Should the order of the density file and the single model IDs be the same?
 
     # Create a job pool for running optimizations.
     if n_processes is None:
@@ -163,31 +163,18 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
             makedirs(time_point_folder)
         pair_rate_file_name = join(time_point_folder, 'pair-rates-{0}.csv'.format(time_point_id))
         effects_matrix_file_name = join(time_point_folder, 'effects-matrix-{0}.csv'.format(time_point_id))
-        gr_matrix_filename = join(time_point_folder, 'rates_matrix-{0:04d}.csv'.format(time_point))
+        density_file_name = join(time_point_folder, 'density-{0}.csv'.format(time_point_id))
         single_rate_file_name = join(time_point_folder, 'single-rates-{0}.csv').format(time_point_id)
         next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
 
         # Calculate the growth rates for each two species model under the current diet conditions.
         growth_rates, alone = calculate_growth_rates(pair_file_names, diet, pool, pair_rate_file_name, time_point_id)
 
-        # Accumulate single species growth rates into a dict (confirm get the same answer every time.
-
-        # effects = growth_rates.apply(get_effects, axis=1)
-        # if data_folder:
-        #     effects.to_csv(join(time_point_folder, 'effects-{0}.csv'.format(time_point_id)))
-
-        # Create the growth rate matrix.
-        gr_matrix = create_gr_matrix(growth_rates)
-        gr_matrix.to_csv(gr_matrix_filename)
-
         # Create the effects matrix.
         effects_matrix = create_effects_matrix(growth_rates, effects_matrix_file_name, time_point_id)
 
         # Run Leslie-Gower algorithm to calculate new population densities.
-        LOGGER.info('[%s] Calculating population densities ...', time_point_id)
-        density = leslie_gower(gr_matrix_filename, effects_matrix, density)
-        if data_folder:
-            density.to_csv(join(time_point_folder, 'density-{0}.csv'.format(time_point_id)))
+        density = leslie_gower(effects_matrix, density, density_file_name, time_point_id, alone)
 
         # Get the exchange reaction fluxes from optimizing single species models.
         exchange_fluxes = get_exchange_fluxes(single_file_names, diet, pool,
@@ -332,40 +319,6 @@ def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_n
     return pair_rate, alone_rate
 
 
-def create_gr_matrix(growth_rates):
-    # Matrix has growth rate of species alone on diagonal, species in the presence of other species
-    # in the rest of the cells. Column 0 is an organism ID, row 0 is an organism ID
-
-    # But really just need the growth rate of the organism on the diagonal.
-    genomeAdata = []
-    genomeBdata = []
-    grAmixdata = []
-    grBmixdata = []
-    grAsolodata = []
-    grBsolodata = []
-    for index, row in growth_rates.iterrows():
-        genomeAdata.append(row['A_ID'])  # A_ID
-        genomeBdata.append(row['B_ID'])  # B_ID
-        grAmixdata.append(row['A_TOGETHER'])  # A_TOGETHER
-        grBmixdata.append(row['B_TOGETHER'])  # B_TOGETHER
-        grAsolodata.append(row['A_ALONE'])  # A_ALONE
-        grBsolodata.append(row['B_ALONE'])  # B_ALONE
-    raw_data_df1 = {'Growth_of': genomeAdata, 'In_presence_of': genomeBdata, 'gr': grAmixdata}
-    raw_data_df2 = {'Growth_of': genomeBdata, 'In_presence_of': genomeAdata, 'gr': grBmixdata}
-    raw_data_df3 = {'Growth_of': genomeAdata, 'In_presence_of': genomeAdata, 'gr': grAsolodata}
-    raw_data_df4 = {'Growth_of': genomeBdata, 'In_presence_of': genomeBdata, 'gr': grBsolodata}
-    df1 = pd.DataFrame(raw_data_df1, columns=['Growth_of', 'In_presence_of', 'gr'])
-    df2 = pd.DataFrame(raw_data_df2, columns=['Growth_of', 'In_presence_of', 'gr'])
-    df3 = pd.DataFrame(raw_data_df3, columns=['Growth_of', 'In_presence_of', 'gr'])
-    df4 = pd.DataFrame(raw_data_df4, columns=['Growth_of', 'In_presence_of', 'gr'])
-    new_df = df1
-    new_df = new_df.append(df2, ignore_index=True)
-    new_df = new_df.append(df3, ignore_index=True)
-    new_df = new_df.append(df4, ignore_index=True)
-    new_df = new_df.pivot_table(index = 'Growth_of', columns = 'In_presence_of', values = 'gr')
-    return new_df
-
-
 def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
     """ Create an effects matrix from growth rate data frame of all pairs.
 
@@ -408,131 +361,97 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
     return effects
 
 
-def leslie_gower(gr_matrix_filename, effects_matrix, density, k=1, time_step=0.5):
-    """ Run Leslie-Gower algorithm to update population density of each organism.
+def leslie_gower(effects_matrix, current_density, density_file_name, time_point_id, alone_rate, k=1, time_step=0.5):
+    """ Run Leslie-Gower algorithm to update population density of each species.
     
     Parameters
     ----------
-    gr_matrix_filename : str
-        Path to 
     effects_matrix : pandas.DataFrame
          Effect of one species on the growth of another species
-    density : pandas.DataFrame
-        Current population density for organisms in community
+    current_density : pandas.DataFrame
+        Current population densities for species in community
+    density_file_name : str
+        Path to file for storing population densities at this time point
+    time_point_id : str
+        ID of current time point
+    alone_rate : dict
+        Single species growth rates
     k : int
         Something important (upper asymptote in numbers) K = r/a where r is difference between birth-rate 
         and death-rate and a is a positive constant paper tried K of 100 and 2000
     time_step : float
         Size of time interval where 1 means one hour
+
+    Returns
+    -------
+    pandas.DataFrame
+        Updated population densities for species in community
     """
 
-    # Need to understand the input data. Can it be in a better format?
+    LOGGER.info('[%s] Calculating population densities ...', time_point_id)
 
-    # And who is Gower?
-    
-    # Need consistent order to arrays.
-    density_data = []
-    for index, row in density.iterrows():
-        density_data.append(row['DENSITY'])
-    initial_density = np.array(density_data, dtype=float)
+    # lambdaT = 1 + BetaT - DeltaT equation 2.3
+    # why a population density instead of population size?
+    # 2 species vs predator-prey
 
-    # Gotta be careful that organism IDs all match up.
+    # Confirm that the order of the species in the effects matrix matches the
+    # order in the density data frame.
+    if not np.array_equal(effects_matrix.axes[0].values, current_density['ID'].values):
+        # @todo Figure out a way to include the mismatched data in the exception or log it
+        raise ValueError('Order of species in effects matrix does not match density data frame')
 
-    effects = effects_matrix.values  # Convert to numpy.array
-
-    # It is really important that everything is in the right order
+    # Calculations below are done using numpy.array objects.
+    density_values = current_density['DENSITY'].values
+    effects_values = effects_matrix.values
 
     # Actual Effects (21 January 2017). This is the decrease in growth of the focal species due to the others.
     # Previously, we had the total growth of the focal species in the presence of the other, which i don't
     # think made much sense for being in the numerators.
     # Actually, I'm still not completely sure about this.
-    effects = 1 - effects
+    # @todo Can this be removed because of statement below
+    effects_values = 1 - effects_values
 
     # Calculate the vector of the total effects of other species on each of our focal species
-    sum_effects = np.dot(effects, initial_density) #Ok, this is the right way.
+    sum_effects = np.dot(effects_values, density_values) #Ok, this is the right way.
 
-    # Get the information relative to how much biomass is created per species under the present conditions (Bt)
-    species_biomasses = extract_biomass(gr_matrix_filename) #remember that column 1 is the speciesIDs and column 2 is biomasses
-    # This is a complicated way to get the growth rate of something?
+    # Put single species growth rates into a numpy.array object.
+    mybt = list()
+    for index, row in current_density.iterrows():
+        mybt.append(alone_rate[row['ID']])
+    Bt = np.array(mybt, dtype=float)
+    # Note that Leslie uses Bt as birth rate at time point T. But we are really using a growth
+    # rate which includes both the birth rate and death rate.
 
-    #get just the biomasses in a vector
-    species_ids = [] # This is used to build the output data frame
-    Bt = []  # Birth rate at time t? BetaT What about the death rate DeltaT
+    # Adjust the length of the time point.
+    Bt = Bt * time_step
 
-    # lambdaT = 1 + BetaT - DeltaT equation 2.3
-
-    # why a population density instead of population size?
-
-    for line in species_biomasses:
-        species_ids.append(line[0])
-        Bt.append(line[1])
-
-    species_ids = species_ids[1:]
-    Bt = Bt[1:]
-    Bt = np.array(Bt, dtype=float) # This is a numpy array of single species growth rate on current diet
-
-    #reduce the size of the time step
-    # what about when time step is 0?
-    Bt = Bt * time_step # birth rate
-
-    # 2 species vs predator-prey
-
-    #create a vector of lambdas
-    #FIXME Attention: lbds should be equal to 1 + (Bt over the initial population size used for the
+    # Create a vector of lambdas (not to be confused with Python lambda).
+    # FIXME Attention: lbds should be equal to 1 + (Bt over the initial population size used for the
     # calculation of Bt, so 1). This way, Bt will also be independent of populations size
-    #The initial calculations were using the below and that may be why everything always seemed so strange
-    #lbds = 1 + Bt/init
+    # The initial calculations were using the below and that may be why everything always seemed so strange
+    # lbds = 1 + Bt/init
 
     # I think it is supposed to be
     lbds = 1 + Bt
 
-    #create a vector of alphas
+    # Create a vector of alphas
     alphas = (lbds-1) / k
 
-    #create a vector with the values of the population sizes at Nt+1
-    Nafter = (lbds * initial_density) / (1 + alphas * initial_density + sum_effects)
+    # Create a vector with the values of the population sizes at this time point.
+    # @todo So density_values is the current value of the density which is different from size?
+    # @todo Should alpha, lambda, and sum_effects be logged?
+    n_after = (lbds * density_values) / (1 + alphas * density_values + sum_effects)
 
-    # Create a new densities file.
-    density = pd.DataFrame(columns=['ORGANISM', 'DENSITY'])
-    for i in range(len(Nafter)):
-        if Nafter[i] < 1e-12 or str(Nafter[i]) == 'inf' or str(Nafter[i]) == 'nan':
-            Nafter[i] = 0.0
-        density = density.append({'ORGANISM': species_ids[i], 'DENSITY': Nafter[i]}, ignore_index=True)
+    # Store the updated population densities for this time point in a data frame.
+    next_density = pd.DataFrame(columns=density_columns)
+    # Everything should be in the same order so can index into current density file.
+    for i in range(len(n_after)):
+        if n_after[i] < 1e-12 or str(n_after[i]) == 'inf' or str(n_after[i]) == 'nan':
+            n_after[i] = 0.0
+        next_density = next_density.append({'ID': current_density['ID'][i], 'DENSITY': n_after[i]}, ignore_index=True)
+    next_density.to_csv(density_file_name, index=False)
 
-    return density
-
-
-def extract_biomass(gr_matrix_filename):
-
-    # Gotta be a better way to do this ...
-    matrix = []
-    with open(gr_matrix_filename, 'r') as handle:
-        for line in handle:
-            matrix.append(line.strip().split(','))
-
-    #create an array jsut with the speciesIDs
-    speciesIDs = []
-    for i in range(len(matrix)):
-        speciesIDs.append(matrix[i][0])
-    speciesIDs[0] = 'SpeciesIDs'
-
-    #create an array with the biomass created for each species in isolation
-    col2 = []
-    for i in range(len(matrix)):
-        for j in range(len(matrix)):
-            if i == j:
-                col2.append(matrix[i][j])
-    col2[0] = 'Biomass'
-
-    #merge the information matching the biomass values to the speciesID
-    merged = []
-    for i in range(len(speciesIDs)):
-        new_line = [speciesIDs[i],col2[i]]
-        merged.append(new_line)
-
-    # So merged is a list of lists, first row is a header with 'SpeciesIDs" and 'Biomasses'
-    # all remaining rows are the model ID and growth rate of species by itself in current diet
-    return merged
+    return next_density
 
 
 def optimize_single_model(model_file_name, medium):
@@ -608,7 +527,7 @@ def get_exchange_fluxes(single_file_names, current_diet, pool, single_rate_file_
     result_list = [pool.apply_async(optimize_single_model, (file_name, current_diet))
                    for file_name in single_file_names]
 
-    # Get the fluxes for the metabolites that are consumed and produced by each organism.
+    # Get the fluxes for the metabolites that are consumed and produced by each species.
     exchange_fluxes = dict()
     for result in result_list:
         details = result.get()
@@ -632,7 +551,7 @@ def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name
     exchange_fluxes : dict
         Dictionary keyed by model ID of fluxes for exchange reactions
     density : pandas.DataFrame
-        Population densities for organisms in community
+        Population densities for species in community
     next_diet_file_name: str
         Path to file for storing diet conditions of next time point
     time_step : float
@@ -651,10 +570,10 @@ def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name
     # Calculate consumption and production of every metabolite in the diet at
     # this time point, adjusted by the population density and time step.
     new_fluxes = defaultdict(float)
-    for organism_id in exchange_fluxes:
-        row = density.loc[density['ORGANISM']==organism_id]
-        for rxn_id in exchange_fluxes[organism_id]:
-            value = exchange_fluxes[organism_id][rxn_id] * row.iloc[0]['DENSITY'] * time_step
+    for species_id in exchange_fluxes:
+        row = density.loc[density['ID'] == species_id]
+        for rxn_id in exchange_fluxes[species_id]:
+            value = exchange_fluxes[species_id][rxn_id] * row.iloc[0]['DENSITY'] * time_step
             new_fluxes[rxn_id] += value
 
     # Update the current diet conditions to create the diet conditions for the

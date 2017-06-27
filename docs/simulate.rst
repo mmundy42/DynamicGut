@@ -5,15 +5,17 @@ A DynamicGut simulation predicts the population densities of a microbial communi
 over time given initial diet conditions. See :doc:`prepare` for details on creating
 the initial density and diet files.
 
-A simulation runs over a range of time points. In the file names below, "NNNN" is a
-number identifying the time point. For example, "0002" is for the second time point.
-At each time point, DynamicGut performs the following operations.
+A simulation runs over a range of time points. The default unit for a time point is
+one hour. At each time point, DynamicGut performs the operations described below.
+
+Note, in the file names below, "NNNN" is a number identifying the time point. For
+example, "0002" is for the second time point.
 
 Calculate growth rates of every pair in community
 -------------------------------------------------
 
-Each two species community model is optimized three times: (1) with both species, (2) with
-first species knocked out, and (3) with second species knocked out.
+Each two species community model is optimized three times: (1) with both species,
+(2) with first species knocked out, and (3) with second species knocked out.
 
 The results are stored in a file named "pair-rates-NNNN.csv" that has this format::
 
@@ -21,6 +23,24 @@ The results are stored in a file named "pair-rates-NNNN.csv" that has this forma
     Btheta,Ecoli,10.1946336186,0.00199613435042,5107.18810908,0.0,4.0422673957,0.0
     Btheta,Erectale,0.00199613435042,0.00199613435042,1.0,3.97515044271,3.97592893938,0.999804197539
     Ecoli,Erectale,4.0422673957,4.0422673957,1.0,0.0,3.97592893938,0.0
+
+Each row shows the growth rates for a pair of species in the community on the
+current diet conditions where:
+
+* A_ID is the model ID of species A.
+* B_ID is the model ID of species B.
+* A_TOGETHER is the growth rate of species A together with species B.
+* A_ALONE is the growth rate of species A with species B knocked out.
+* A_CHANGE is the percent change in the growth rate of species A calculated using
+  the formula below.
+* B_TOGETHER is the growth rate of species B together with species A.
+* B_ALONE is the growth rate of species B with species A knocked out.
+* B_CHANGE is the percent change in the growth rate of species B calculated using
+  the formula below.
+
+Percent change is calculated as::
+
+    percent_change = together / alone
 
 Calculate an effects matrix from growth rates
 ---------------------------------------------
@@ -38,27 +58,42 @@ format::
     Ecoli,0.0,1.0,1.0
     Erectale,0.999804197539,0.0,1.0
 
+For example, the effect of ``Erectale`` on the growth rate of ``Btheta`` is ``1.0``.
 Note the column headers are the model IDs and are different based on the members
 in the community.
 
-Calculate new population densities
-----------------------------------
+Update population densities
+---------------------------
 
-Run the Leslie-Gower algorithm to calculate updated population densities.
+The Leslie-Gower algorithm uses the growth rates to calculate an updated population
+size for a species using this formula::
+
+    n_after = (lambda * n) / (1 + alpha * n + sum_effect)
+
+where
+
+* lambda is *something*
+* n is the current population size *(or density)*
+* alpha is *something else* calculated from lambda and K
+* sum_effect is the total effect of other species on this species
+* n_after is the updated population size *(or density)*
 
 The results are stored in a file named "density-NNNN.csv" that has this format::
 
     ID,DENSITY
+    Btheta,1.22723737851e-05
+    Ecoli,9.12613613888e-05
+    Erectale,8.92668652468e-05
 
-Calculate new diet conditions
------------------------------
+Update diet conditions
+----------------------
 
 At the end of the time step, the diet conditions are adjusted to reflect the
 consumption and production of metabolites by the members of the community. The
 new diet conditions are used for the calculations in the next time point.
 
 Each single species model is optimized on the current diet conditions for
-a good reason. For each species, the bound on each exchange reaction in the
+*a good reason*. For each species, the bound on each exchange reaction in the
 current diet is updated by the flux of the exchange reaction adjusted by the
 species population density. Remember that there is variability in the results
 of a flux balance analysis so the values are not exactly the same given the
@@ -71,6 +106,12 @@ The results of the single species optimizations are stored in a file named
     Bacteroides_thetaiotaomicron_VPI_5482,optimal,0.00199613435042
     Escherichia_coli_str_K_12_substr_MG1655,optimal,4.0422673957
     Eubacterium_rectale_ATCC_33656,optimal,3.97592893938
+
+where:
+
+* ID is the ID of the single species model.
+* STATUS is the status of the optimization as returned by the solver.
+* GROWTH_RATE is the growth rate of the species on the current diet conditions.
 
 The new diet conditions are stored in a file named "diet-NNNN.json" that has
 this format::
