@@ -1,7 +1,7 @@
 from os import listdir
 from os.path import join
 
-from mminte import load_model_from_file
+from mminte import load_model_from_file, save_model_to_file
 
 
 def find_models_in_folder(source_folder):
@@ -82,3 +82,25 @@ def get_exchange_reaction_ids(model_file_names):
         for rxn in exchange_reactions:
             all_exchange_reactions.add(rxn.id)
     return all_exchange_reactions, model_ids
+
+
+def set_model_id_prefix(model_file_names, prefix='M'):
+    """ Set a prefix on model IDs for all models in a list of models.
+
+    Model IDs must start with an alphabetic character so they are interpreted as
+    strings in data frames. Models created by ModelSEED typically use a PATRIC
+    genome ID as the model ID which is a number.
+
+    Parameters
+    ----------
+    model_file_names : list of str
+        List of path names to model files
+    prefix : str, optional
+        String to use as prefix for model IDs
+    """
+
+    for name in model_file_names:
+        model = load_model_from_file(name)
+        model.id = prefix + model.id
+        save_model_to_file(model, name)
+    return

@@ -37,12 +37,12 @@ in the diet file but are not in any single species model are ignored.
 Create an initial density file
 ------------------------------
 
-A population density is the size of an organism's population in the community.
+A population density is *the size of an organism's population in the community*.
 An initial population density is the starting point for the simulation. By defining
 different population densities you can simulate how the community responds to
 different compositions of the community.
 
-A population density is expressed as a value of something. The population density
+A population density is expressed as a *value of something*. The population density
 for each organism in the community is defined in a density file that lists the
 IDs of all of the single species models and the value in CSV format. For example::
 
@@ -58,10 +58,15 @@ When running a simulation, DynamicGut optimizes a two species community model
 for every pair of organisms in the community under the current nutrient
 conditions. As input, you provide the single species models for each member of
 the community. Each single species model should produce growth using the medium
-set in the input model. The ``prepare()`` function creates two species community
+set in the input model. A single species model ID must start with an alphabetic
+character so the type is correctly set as a string in data frames that are
+created during a simulation.
+
+The ``prepare()`` function creates two species community
 models from the single species models and stores the pair model files in a folder.
 You can optionally have the ``prepare()`` function confirm that the single species
 models produce growth. For example::
 
     import dynamicgut
     pair_file_names = dynamicgut.prepare()
+
