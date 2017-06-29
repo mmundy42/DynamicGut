@@ -83,7 +83,7 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
 
 
 def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_name,
-                   density_file_name, data_folder, n_processes=None, verbose=True):
+                   density_file_name, data_folder, time_step=0.5, n_processes=None):
     """ Run a simulation over a time interval.
 
     Do we need a time_step parameter?
@@ -102,15 +102,13 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         Path to file with initial population densities in CSV format
     data_folder : str
         Path to folder for storing data generated at each time point
+    time_step : float, optional
+        Adjustment to time point where 1 is one hour, 0.5 is 30 minutes, etc.
     n_processes: int, optional
         Number of processes in job pool
-    verbose : bool
-        Store intermediate data generated at each time point
     """
 
-    # @todo Does time step need to a parameter?
     # @todo Does time step need a validation (e.g. time step is 0)?
-    time_step = 0.5
 
     # Get the initial population density values.
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
@@ -121,14 +119,17 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # Get the initial diet conditions.
     diet = json.load(open(diet_file_name))
 
-    # Confirm that the initial diet includes every exchange reaction from the
-    # single species models.
+    # Set diet for first time step by adding exchange reactions from the single
+    # species models that are not in the initial diet.
     model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
     initial_exchanges = set(diet.keys())
-    if not initial_exchanges.issuperset(model_exchanges):
-        raise ValueError('Diet file {0} does not contain all exchange reactions from single species models'
-                         .format(diet_file_name))
-    # @todo Warning if initial exchanges has more reactions than models?
+    if initial_exchanges > model_exchanges:
+        warn('Diet file {0} contains more exchange reactions than there are in single species models'
+             .format(diet_file_name))
+    if model_exchanges.issuperset(initial_exchanges):  # @todo is this necessary?
+        for rxn_id in (model_exchanges - initial_exchanges):
+            diet[rxn_id] = 0.0
+    json.dump(diet, open(join(data_folder, 'initial-diet.json'), 'w'), indent=4)
 
     # Confirm the model IDs in the initial density file match the model IDs in the
     # list of single species models.
@@ -138,7 +139,6 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     if density.loc[density['ID'].isin(model_ids)].shape[0] != len(model_ids):
         raise ValueError('One or more model IDs in initial density file do not match '
                          'model IDs in single species models')
-    # Should the order of the density file and the single model IDs be the same?
 
     # Create a job pool for running optimizations.
     if n_processes is None:
@@ -150,7 +150,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
                    for file_name in single_file_names]
     for result in result_list:
         details = result.get()
-        if details['objective_value'] < NO_GROWTH:
+        if details['objective_value'] < NO_GROWTH:  # Instead check for non-optimal solution
             raise ValueError('Model {0} does not grow using initial diet'.format(details['model_id']))
 
     # Run the simulation over the specified time interval.
@@ -392,7 +392,6 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
 
     # lambdaT = 1 + BetaT - DeltaT equation 2.3
     # why a population density instead of population size?
-    # 2 species vs predator-prey
 
     # Confirm that the order of the species in the effects matrix matches the
     # order in the density data frame.

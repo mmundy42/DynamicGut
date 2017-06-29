@@ -1,5 +1,6 @@
 from os import listdir
 from os.path import join
+import json
 
 from mminte import load_model_from_file, save_model_to_file
 
@@ -82,6 +83,43 @@ def get_exchange_reaction_ids(model_file_names):
         for rxn in exchange_reactions:
             all_exchange_reactions.add(rxn.id)
     return all_exchange_reactions, model_ids
+
+
+def make_diet_from_models(model_file_names, diet_file_name, bound=None):
+    """ Make a diet file from the exchange reactions in a list of models.
+
+    Parameters
+    ----------
+    model_file_names : list of str
+        List of path names to model files
+    diet_file_name : str
+        Path to file to store diet conditions in JSON format
+    bound : float, optional
+        Bound to set on every exchange reaction, when None use bound from first
+        model that contains exchange reaction
+    """
+
+    def get_active_bound(reaction):
+        """ For an active boundary reaction, return the relevant bound. """
+        if reaction.reactants:
+            return -reaction.lower_bound
+        elif reaction.products:
+            return reaction.upper_bound
+
+    if bound is not None:
+        bound = float(abs(bound))
+    diet = dict()
+    for name in model_file_names:
+        model = load_model_from_file(name)
+        exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
+        for rxn in exchange_reactions:
+            if rxn.id not in diet:
+                if bound is None:
+                    diet[rxn.id] = get_active_bound(rxn)
+                else:
+                    diet[rxn.id] = bound
+    json.dump(diet, open(diet_file_name, 'w'), indent=4)
+    return
 
 
 def set_model_id_prefix(model_file_names, prefix='M'):

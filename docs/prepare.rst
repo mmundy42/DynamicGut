@@ -4,13 +4,13 @@ Prepare a simulation
 Before running a simulation with DynamicGut, you must prepare two input files
 and construct pair models for all combinations of two species in the community.
 
-Create an initial diet file
----------------------------
+Make an initial diet file
+-------------------------
 
 A diet identifies the metabolites that are available for the members of the
 community to consume. An initial diet is the starting point for the simulation.
-By defining different diets you can simulate how the community responds to
-different nutrient conditions.
+By defining different diet conditions you can simulate how the community responds
+to the availability of different metabolites or different amounts of metabolites.
 
 A diet is expressed in terms of exchange reactions that allow metabolites to
 move between the boundary and either the extracellular compartment in a single
@@ -26,13 +26,26 @@ positive value. For example::
     {
         "EX_ascb_L_LPAREN_e_RPAREN_": 0.745862875,
         "EX_gncore2_LPAREN_e_RPAREN_": 0.1,
-        "EX_fol_LPAREN_e_RPAREN_": 0.1
+        "EX_fol_LPAREN_e_RPAREN_": 0.1,
         ...
     }
 
-There must be an entry in the diet file for every exchange reaction that is
-defined in the single species models. Any exchange reactions that are defined
-in the diet file but are not in any single species model are ignored.
+There are several ways to make an initial diet file. First, you can use the
+``make_diet_from_models()`` function to create a diet file that contains all of
+the exchange reactions from a list of single species models. You can either set
+the bound of every exchange reaction to the same value or use the bound from the
+first model that contains the exchange reaction.
+
+Second, you can manually create a file with the data. You also might need to edit
+the diet file created by ``make_diet_from_models()`` to adjust the bounds on
+specific exchange reactions so all members of the community can grow on the diet
+conditions.
+
+Third, you can get a diet file from another source. The format of the diet file
+is the same as the format used by COBRApy for setting the medium on a model.
+
+Any exchange reactions that are in at least one of the single species models and
+not in the diet conditions have their bound set to 0.
 
 Create an initial density file
 ------------------------------
