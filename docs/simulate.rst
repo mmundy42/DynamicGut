@@ -3,7 +3,7 @@ Run a simulation
 
 A DynamicGut simulation predicts the population densities of a microbial community
 over time given initial diet conditions. See :doc:`prepare` for details on creating
-the initial density and diet files.
+the input files.
 
 A simulation runs over a range of time points. The default unit for a time point is
 one hour. At each time point, DynamicGut performs the operations described below.
@@ -50,7 +50,7 @@ the presence of another species. A row gives the percent change in growth of
 one species in the presence of all of the other species in the community. The
 diagonal in the matrix is always 1.
 
-The results are stored in a file named "effects-matrix-NNN.csv" that has this
+The results are stored in a file named "effects-matrix-NNNN.csv" that has this
 format::
 
     PERCENT_CHANGE,Btheta,Ecoli,Erectale
@@ -65,18 +65,27 @@ in the community.
 Update population densities
 ---------------------------
 
-The Leslie-Gower algorithm uses the growth rates to calculate an updated population
-size for a species using this formula::
+The Leslie equation for calculating the population size with two competing species
+uses the following terms:
 
-    n_after = (lambda * n) / (1 + alpha * n + sum_effect)
+* *lambda* is a logistic parameter for the species when it is living alone and is
+  calculated as ``1 + Bt - Dt`` where *Bt* is the birth rate at time point t and
+  *Dt* is the death rate at time point t (Equation 2-3). When a model is optimized, the output
+  is the growth rate at time point t where ``Gt = Bt - Dt`` so DynamicGut *lambda* becomes
+  ``1 + Gt`` . Assumed in our work
+* *K* is the upper asymptote of the population size or the maximum size of the
+  population that the environment has the capacity to support also known as carrying capacity.
+* *alpha* is a logistic parameter for the species and is calculated as
+  ``(lambda - 1) / K`` (Equation 3-3).
+* *gamma* is the magnitude of the effect which each species has on the rate of
+  increase of the other species.
+* *N(t)* is the population size at time point t.
+* *N(t+1)* is the population size at time point t+1 (or the next time point).
 
-where
+Using Leslie equation 3-4, the population size of a species at the next time point
+is calculated as::
 
-* lambda is *something*
-* n is the current population size *(or density)*
-* alpha is *something else* calculated from lambda and K
-* sum_effect is the total effect of other species on this species
-* n_after is the updated population size *(or density)*
+    N(t+1) = lambda * N(t) / 1 + alpha * N(t) + gamma * N(t)
 
 The results are stored in a file named "density-NNNN.csv" that has this format::
 
@@ -123,3 +132,15 @@ this format::
         ...
     }
 
+Output files
+------------
+
+At the end of the simulation, the following files are stored in the folder specified
+with the ``data_folder`` parameter.
+
+* initial-diet.json contains the initial diet conditions used as input to the first
+  time point in the simulation
+* final-diet.json contains the final diet conditions that are output from the last
+  time point in the simulation
+* timepoint-NNNN is a folder with the files created at each time point in the
+  simulation that are described above

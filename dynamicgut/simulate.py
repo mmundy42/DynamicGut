@@ -86,8 +86,6 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
                    density_file_name, data_folder, time_step=0.5, n_processes=None):
     """ Run a simulation over a time interval.
 
-    Do we need a time_step parameter?
-    
     Parameters
     ----------
     time_interval : range
@@ -109,6 +107,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     """
 
     # @todo Does time step need a validation (e.g. time step is 0)?
+    # more than 0 and 1
 
     # Get the initial population density values.
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
@@ -120,7 +119,9 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     diet = json.load(open(diet_file_name))
 
     # Set diet for first time step by adding exchange reactions from the single
-    # species models that are not in the initial diet.
+    # species models that are not in the initial diet. This allows metabolites
+    # produced by a species to become available in the diet conditions during the
+    # simulation.
     model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
     initial_exchanges = set(diet.keys())
     if initial_exchanges > model_exchanges:
@@ -323,7 +324,7 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
     """ Create an effects matrix from growth rate data frame of all pairs.
 
     Each cell in an effects matrix is the effect on the growth of one species in
-    the presence of another species. A row gives the percent change in growth of
+    the presence of another species. A row gives the magnitude  in growth of
     a specific species in the presence of all of the other species in the community.
     The diagonal in the matrix is always 1.
 
@@ -363,7 +364,14 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
 
 def leslie_gower(effects_matrix, current_density, density_file_name, time_point_id, alone_rate, k=1, time_step=0.5):
     """ Run Leslie-Gower algorithm to update population density of each species.
-    
+
+    N(t+1) = lambda * N(t) / 1 + alpha * N(t) + gamma * N(t)
+
+    Equation 3-4
+    Lambda and alpha are logistic parameters for a species when it is living alone.
+    Positive constant gamma expresses the magnitude of the effect which each species has on the rate
+    increase of the other.
+
     Parameters
     ----------
     effects_matrix : pandas.DataFrame
@@ -376,11 +384,11 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
         ID of current time point
     alone_rate : dict
         Single species growth rates
-    k : int
-        Something important (upper asymptote in numbers) K = r/a where r is difference between birth-rate 
-        and death-rate and a is a positive constant paper tried K of 100 and 2000
+    k : int, optional
+        Maximum size of the population that the environment has the capacity to support
     time_step : float
-        Size of time interval where 1 means one hour
+        Size of time interval where the value is greater than 0 and less than or
+        equal to 1 and 1 means one hour, 0.5 means 30 minutes, etc.
 
     Returns
     -------
@@ -390,8 +398,7 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
 
     LOGGER.info('[%s] Calculating population densities ...', time_point_id)
 
-    # lambdaT = 1 + BetaT - DeltaT equation 2.3
-    # why a population density instead of population size?
+    # @todo Why a population density instead of population size?
 
     # Confirm that the order of the species in the effects matrix matches the
     # order in the density data frame.
@@ -399,49 +406,54 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
         # @todo Figure out a way to include the mismatched data in the exception or log it
         raise ValueError('Order of species in effects matrix does not match density data frame')
 
-    # Calculations below are done using numpy.array objects.
-    density_values = current_density['DENSITY'].values
-    effects_values = effects_matrix.values
+    # Density or N(t) is the population size at the beginning of the time point.
+    density = current_density['DENSITY'].values
+
+    # Effects or gamma is the magnitude of the effect which each species has on the
+    # rate of increase of the other species.
+    effects = effects_matrix.values
 
     # Actual Effects (21 January 2017). This is the decrease in growth of the focal species due to the others.
     # Previously, we had the total growth of the focal species in the presence of the other, which i don't
     # think made much sense for being in the numerators.
     # Actually, I'm still not completely sure about this.
     # @todo Can this be removed because of statement below
-    effects_values = 1 - effects_values
+    # @tood Can this be done when calculating effects matrix?
+    effects = 1 - effects
 
-    # Calculate the vector of the total effects of other species on each of our focal species
-    sum_effects = np.dot(effects_values, density_values) #Ok, this is the right way.
+    # Calculate the vector of the total effects of other species on each of our
+    # focal species where sum effects = gamma * N(t).
+    sum_effects = np.dot(effects, density)
 
-    # Put single species growth rates into a numpy.array object.
-    mybt = list()
+    # Convert the dictionary of single species growth rates at this time point to
+    # a numpy.array in the same order as the current density array.
+    # @todo List comprehension?
+    gt = list()
     for index, row in current_density.iterrows():
-        mybt.append(alone_rate[row['ID']])
-    Bt = np.array(mybt, dtype=float)
-    # Note that Leslie uses Bt as birth rate at time point T. But we are really using a growth
-    # rate which includes both the birth rate and death rate.
+        gt.append(alone_rate[row['ID']])
+    growth = np.array(gt, dtype=float)
 
-    # Adjust the length of the time point.
-    Bt = Bt * time_step
+    # Growth rate is reported in units of one hour. Adjust the growth rate by the
+    # size of the time step (e.g. cut in half for a 30 minute time step).
+    growth = growth * time_step
 
-    # Create a vector of lambdas (not to be confused with Python lambda).
-    # FIXME Attention: lbds should be equal to 1 + (Bt over the initial population size used for the
-    # calculation of Bt, so 1). This way, Bt will also be independent of populations size
-    # The initial calculations were using the below and that may be why everything always seemed so strange
-    # lbds = 1 + Bt/init
+    # Calculate lambda values as lambda = 1 + Gt where Gt is the growth rate at time
+    # point t. In terms of the Leslie algorithm, Gt = Bt - Dt where Bt is birth rate
+    # at time point t and Dt is death rate at time point t (Equation 2-3).
+    lambdas = 1 + growth
 
-    # I think it is supposed to be
-    lbds = 1 + Bt
+    # Calculate alpha values as alpha = (lambda - 1) / K where K is the size of the
+    # population that the environment has the capacity to support (Equation 3-3.
+    # @todo Does K need to be on a per species basis? (i.e. different K for each species)
+    alphas = (lambdas - 1) / k
 
-    # Create a vector of alphas
-    alphas = (lbds-1) / k
-
-    # Create a vector with the values of the population sizes at this time point.
+    # Calculate the population size at the end of the time point using the equation.
+    # @todo Need np.dot for alphas * density?
     # @todo So density_values is the current value of the density which is different from size?
     # @todo Should alpha, lambda, and sum_effects be logged?
-    n_after = (lbds * density_values) / (1 + alphas * density_values + sum_effects)
+    n_after = (lambdas * density) / (1 + alphas * density + sum_effects)
 
-    # Store the updated population densities for this time point in a data frame.
+    # Store the updated population densities for this time point in a new data frame.
     next_density = pd.DataFrame(columns=density_columns)
     # Everything should be in the same order so can index into current density file.
     for i in range(len(n_after)):
