@@ -18,7 +18,7 @@ from .util import check_for_growth, get_exchange_reaction_ids
 LOGGER = logging.getLogger(__name__)
 
 # Column names for two species community growth rate data frame.
-pair_rate_columns = ['A_ID', 'B_ID', 'A_TOGETHER', 'A_ALONE', 'A_CHANGE', 'B_TOGETHER', 'B_ALONE', 'B_CHANGE']
+pair_rate_columns = ['A_ID', 'B_ID', 'A_TOGETHER', 'A_ALONE', 'A_EFFECT', 'B_TOGETHER', 'B_ALONE', 'B_EFFECT']
 
 # Column names for single species growth rate data frame.
 single_rate_columns = ['ID', 'STATUS', 'GROWTH_RATE']
@@ -83,7 +83,7 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
 
 
 def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_name,
-                   density_file_name, data_folder, time_step=0.5, n_processes=None):
+                   density_file_name, data_folder, time_step=0.5, k=1, n_processes=None):
     """ Run a simulation over a time interval.
 
     Parameters
@@ -102,12 +102,15 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         Path to folder for storing data generated at each time point
     time_step : float, optional
         Adjustment to time point where 1 is one hour, 0.5 is 30 minutes, etc.
+    k : int, optional
+        Maximum size of the population that the environment has the capacity to support
     n_processes: int, optional
         Number of processes in job pool
     """
 
-    # @todo Does time step need a validation (e.g. time step is 0)?
-    # more than 0 and 1
+    # Validate time_step parameter.
+    if time_step <= 0.0 or time_step > 1.0:
+        raise ValueError('time_step parameter must be a value greater than 0 and less than or equal to 1')
 
     # Get the initial population density values.
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
@@ -138,6 +141,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         raise ValueError('Number of species ({0}) in initial density file does not match '
                          'number of single species models ({1})'.format(density.shape[0], len(model_ids)))
     if density.loc[density['ID'].isin(model_ids)].shape[0] != len(model_ids):
+        # @todo Figure what does not match and report to caller
         raise ValueError('One or more model IDs in initial density file do not match '
                          'model IDs in single species models')
 
@@ -145,14 +149,6 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     if n_processes is None:
         n_processes = min(cpu_count(), 4)
     pool = Pool(n_processes)
-
-    # Confirm input single species models produce growth using initial diet conditions.
-    result_list = [pool.apply_async(optimize_single_model, (file_name, diet))
-                   for file_name in single_file_names]
-    for result in result_list:
-        details = result.get()
-        if details['objective_value'] < NO_GROWTH:  # Instead check for non-optimal solution
-            raise ValueError('Model {0} does not grow using initial diet'.format(details['model_id']))
 
     # Run the simulation over the specified time interval.
     for time_point in time_interval:
@@ -175,7 +171,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         effects_matrix = create_effects_matrix(growth_rates, effects_matrix_file_name, time_point_id)
 
         # Run Leslie-Gower algorithm to calculate new population densities.
-        density = leslie_gower(effects_matrix, density, density_file_name, time_point_id, alone)
+        density = leslie_gower(effects_matrix, density, density_file_name, time_point_id, alone, k, time_step)
 
         # Get the exchange reaction fluxes from optimizing single species models.
         exchange_fluxes = get_exchange_fluxes(single_file_names, diet, pool,
@@ -184,7 +180,10 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         # Create diet conditions for next time point.
         diet = create_next_diet(diet, exchange_fluxes, density, next_diet_file_name, time_step, time_point_id)
 
+    # Cleanup and store results from last time step in data folder.
     pool.close()
+    json.dump(diet, open(join(data_folder, 'final-diet.json'), 'w'), indent=4)
+    density.to_csv(join(data_folder, 'final-density.csv'))
 
     return
 
@@ -345,18 +344,17 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
 
     LOGGER.info('[%s] Creating effects matrix ...', time_point_id)
 
-    # Extract the species model IDs and percent change values from the input
-    # data frame.
+    # Extract the species model IDs and effect values from the input data frame.
     a_id = pair_rate['A_ID'].tolist()
     b_id = pair_rate['B_ID'].tolist()
-    a_change = pair_rate['A_CHANGE'].tolist()
-    b_change = pair_rate['B_CHANGE'].tolist()
+    a_effect = pair_rate['A_EFFECT'].tolist()
+    b_effect = pair_rate['B_EFFECT'].tolist()
 
     # Build the output data frame.
-    raw = pd.DataFrame({'PERCENT_CHANGE': a_id, 'BECAUSE_OF': b_id, 'CHANGE': a_change})
-    raw = raw.append(pd.DataFrame({'PERCENT_CHANGE': b_id, 'BECAUSE_OF': a_id, 'CHANGE': b_change}),
+    raw = pd.DataFrame({'EFFECT': a_id, 'BECAUSE_OF': b_id, 'CHANGE': a_effect})
+    raw = raw.append(pd.DataFrame({'EFFECT': b_id, 'BECAUSE_OF': a_id, 'CHANGE': b_effect}),
                      ignore_index=True)
-    effects = raw.pivot_table(index='PERCENT_CHANGE', columns='BECAUSE_OF', values='CHANGE')
+    effects = raw.pivot_table(index='EFFECT', columns='BECAUSE_OF', values='CHANGE')
     effects = effects.replace(np.nan, 1.0, regex=True)
     effects.to_csv(effects_matrix_file_name)
     return effects
@@ -365,12 +363,9 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
 def leslie_gower(effects_matrix, current_density, density_file_name, time_point_id, alone_rate, k=1, time_step=0.5):
     """ Run Leslie-Gower algorithm to update population density of each species.
 
-    N(t+1) = lambda * N(t) / 1 + alpha * N(t) + gamma * N(t)
+    The population size at the next time point is calculated as:
 
-    Equation 3-4
-    Lambda and alpha are logistic parameters for a species when it is living alone.
-    Positive constant gamma expresses the magnitude of the effect which each species has on the rate
-    increase of the other.
+    N(t+1) = lambda * N(t) / 1 + alpha * N(t) + gamma * N(t)
 
     Parameters
     ----------
@@ -418,11 +413,13 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
     # think made much sense for being in the numerators.
     # Actually, I'm still not completely sure about this.
     # @todo Can this be removed because of statement below
-    # @tood Can this be done when calculating effects matrix?
+    # @todo Can this be done when calculating effects matrix?
+    # @todo An intial effect greater 1 turns into a negative number
     effects = 1 - effects
 
     # Calculate the vector of the total effects of other species on each of our
     # focal species where sum effects = gamma * N(t).
+    # @todo density is a 1-D array and effects is a 2-D array so sum_effects is 1-D array
     sum_effects = np.dot(effects, density)
 
     # Convert the dictionary of single species growth rates at this time point to
@@ -438,16 +435,19 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
     growth = growth * time_step
 
     # Calculate lambda values as lambda = 1 + Gt where Gt is the growth rate at time
-    # point t. In terms of the Leslie algorithm, Gt = Bt - Dt where Bt is birth rate
-    # at time point t and Dt is death rate at time point t (Equation 2-3).
+    # point t. Leslie Equation 2-3 says lambda = 1 + Bt - Dt where Bt is birth rate
+    # at time point t and Dt is death rate at time point t. DynamicGut assumes
+    # Gt = Bt - Dt.
     lambdas = 1 + growth
 
     # Calculate alpha values as alpha = (lambda - 1) / K where K is the size of the
-    # population that the environment has the capacity to support (Equation 3-3.
-    # @todo Does K need to be on a per species basis? (i.e. different K for each species)
+    # population that the environment has the capacity to support (Equation 3-3).
+    # DynamicGut assumes that the carrying capacity is the same for all species in
+    # the microbial community.
     alphas = (lambdas - 1) / k
 
-    # Calculate the population size at the end of the time point using the equation.
+    # Calculate the population size at the end of the time point using the equation
+    # given above.
     # @todo Need np.dot for alphas * density?
     # @todo So density_values is the current value of the density which is different from size?
     # @todo Should alpha, lambda, and sum_effects be logged?
