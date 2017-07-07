@@ -65,11 +65,11 @@ The Leslie equation for calculating the population sizes of two competing specie
 uses the following terms:
 
 * *lambda* is a logistic parameter for the species when it is living alone and is
-  defined to be ``1 + Bt - Dt`` where *Bt* is the birth rate at time point t and
-  *Dt* is the death rate at time point t (Equation 2-3). When a model is optimized
+  defined to be ``1 + B(t) - D(t)`` where *B(t)* is the birth rate at time point t and
+  *D(t)* is the death rate at time point t (Equation 2-3). When a model is optimized
   by DynamicGut, the output is the growth rate at time point t. DynamicGut makes
-  the assumption that ``Gt = Bt - Dt`` where *Gt* is the growth rate at time point
-  t. So DynamicGut calculates *lambda* as ``1 + Gt`` .
+  the assumption that ``G(t) = B(t) - D(t)`` where *G(t)* is the growth rate at time
+  point t. So DynamicGut calculates *lambda* as ``1 + G(t)`` .
 * *K* is the upper asymptote of the population size or the carrying capacity (i.e.
   the maximum size of the population that the environment has the capacity to
   support). DynamicGut uses only one value of *K* for all species in the microbial

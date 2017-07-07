@@ -363,9 +363,11 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
 def leslie_gower(effects_matrix, current_density, density_file_name, time_point_id, alone_rate, k=1, time_step=0.5):
     """ Run Leslie-Gower algorithm to update population density of each species.
 
-    The population size at the next time point is calculated as:
+    Leslie Equation 3-4 defines the population size of a species in a pair to be:
 
-    N(t+1) = lambda * N(t) / 1 + alpha * N(t) + gamma * N(t)
+    N1(t+1) = lambda1 * N1(t) / 1 + alpha1 * N1(t) + gamma1 * N2(t)
+
+    Terms are defined in the code below.
 
     Parameters
     ----------
@@ -393,19 +395,40 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
 
     LOGGER.info('[%s] Calculating population densities ...', time_point_id)
 
-    # @todo Why a population density instead of population size?
-
     # Confirm that the order of the species in the effects matrix matches the
     # order in the density data frame.
     if not np.array_equal(effects_matrix.axes[0].values, current_density['ID'].values):
         # @todo Figure out a way to include the mismatched data in the exception or log it
         raise ValueError('Order of species in effects matrix does not match density data frame')
 
-    # Density or N(t) is the population size at the beginning of the time point.
+    # The "N1(t)" term in equation above is the population size at the beginning of the
+    # time point and comes from the DENSITY column of the input data frame. Create a
+    # 1-D array from the data frame.
     density = current_density['DENSITY'].values
 
-    # Effects or gamma is the magnitude of the effect which each species has on the
-    # rate of increase of the other species.
+    # Convert the dictionary of single species growth rates at this time point to
+    # a 1-D array in the same order as the current density array.
+    growth = np.array([alone_rate[row['ID']] for index, row in current_density.iterrows()], dtype=float)
+
+    # Growth rate is reported in units of one hour. Adjust the growth rate by the
+    # size of the time step (e.g. reduce by half for a 30 minute time step).
+    growth = growth * time_step
+
+    # The "lambda1" term in the equation above is defined as "1 + G(t)" where G(t)
+    # is the growth rate at time point t. Leslie Equation 2-3 defines lambda as
+    # "1 + B(t) - D(t)" where B(t) is the birth rate at time point t and D(t) is
+    # the death rate at time point t. DynamicGut assumes "G(t) = B(t) - D(t)".
+    lambdas = 1 + growth
+
+    # The "alpha1" term in the equation above is defined as "lambda - 1 / K" where
+    # K is the size of the population that the environment has the capacity to
+    # support (Equation 3-3). DynamicGut assumes that the carrying capacity is the
+    # same for all species in the microbial community.
+    alphas = (lambdas - 1) / k
+
+    # The "gamma1" term in equation above is the magnitude of the effect which each
+    # species has on the rate of increase of the other species. Create a 2-D matrix
+    # from the input data frame.
     effects = effects_matrix.values
 
     # Actual Effects (21 January 2017). This is the decrease in growth of the focal species due to the others.
@@ -414,50 +437,25 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
     # Actually, I'm still not completely sure about this.
     # @todo Can this be removed because of statement below
     # @todo Can this be done when calculating effects matrix?
-    # @todo An intial effect greater 1 turns into a negative number
+    # @todo An intial effect greater 1 turns into a negative number which decreases value of denominator
     effects = 1 - effects
 
-    # Calculate the vector of the total effects of other species on each of our
-    # focal species where sum effects = gamma * N(t).
-    # @todo density is a 1-D array and effects is a 2-D array so sum_effects is 1-D array
-    sum_effects = np.dot(effects, density)
-
-    # Convert the dictionary of single species growth rates at this time point to
-    # a numpy.array in the same order as the current density array.
-    # @todo List comprehension?
-    gt = list()
-    for index, row in current_density.iterrows():
-        gt.append(alone_rate[row['ID']])
-    growth = np.array(gt, dtype=float)
-
-    # Growth rate is reported in units of one hour. Adjust the growth rate by the
-    # size of the time step (e.g. cut in half for a 30 minute time step).
-    growth = growth * time_step
-
-    # Calculate lambda values as lambda = 1 + Gt where Gt is the growth rate at time
-    # point t. Leslie Equation 2-3 says lambda = 1 + Bt - Dt where Bt is birth rate
-    # at time point t and Dt is death rate at time point t. DynamicGut assumes
-    # Gt = Bt - Dt.
-    lambdas = 1 + growth
-
-    # Calculate alpha values as alpha = (lambda - 1) / K where K is the size of the
-    # population that the environment has the capacity to support (Equation 3-3).
-    # DynamicGut assumes that the carrying capacity is the same for all species in
-    # the microbial community.
-    alphas = (lambdas - 1) / k
+    # Calculate the "gamma1 * N2(t)" term in the equation above. The resulting
+    # total_effects vector represents the total effect of all other species on
+    # the focal species. The matrix multiplication of the 2-D effects matrix and
+    # the 1-D density array, creates a 1-D array.
+    total_effects = np.dot(effects, density)
 
     # Calculate the population size at the end of the time point using the equation
     # given above.
-    # @todo Need np.dot for alphas * density?
-    # @todo So density_values is the current value of the density which is different from size?
-    # @todo Should alpha, lambda, and sum_effects be logged?
-    n_after = (lambdas * density) / (1 + alphas * density + sum_effects)
+    # @todo Should alpha, lambda, and total_effects be logged?
+    n_after = (lambdas * density) / (1 + alphas * density + total_effects)
 
     # Store the updated population densities for this time point in a new data frame.
-    next_density = pd.DataFrame(columns=density_columns)
     # Everything should be in the same order so can index into current density file.
+    next_density = pd.DataFrame(columns=density_columns)
     for i in range(len(n_after)):
-        if n_after[i] < 1e-12 or str(n_after[i]) == 'inf' or str(n_after[i]) == 'nan':
+        if n_after[i] < NO_GROWTH or str(n_after[i]) == 'inf' or str(n_after[i]) == 'nan':
             n_after[i] = 0.0
         next_density = next_density.append({'ID': current_density['ID'][i], 'DENSITY': n_after[i]}, ignore_index=True)
     next_density.to_csv(density_file_name, index=False)
