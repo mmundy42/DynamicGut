@@ -29,6 +29,9 @@ density_columns = ['ID', 'DENSITY']
 # Minimum objective value to show growth.
 NO_GROWTH = 1e-13
 
+# Very small number to prevent division by zero.
+ALMOST_ZERO = 1e-25
+
 # check on objectives in Agora models and which one got picked when building pair model
 
 # For debugging pandas
@@ -117,6 +120,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     if not set(density_columns).issubset(density.columns):
         raise ValueError('Required columns {0} not available in population density file {1}'
                          .format(density_columns, density_file_name))
+    # @todo Add more validation of density file, ID is string greater than 0, DENSITY is valid float
 
     # Get the initial diet conditions.
     diet = json.load(open(diet_file_name))
@@ -191,10 +195,17 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
 def optimize_pair_model(model_file_name, medium):
     """ Optimize a two species community model.
 
-    This function is used as a target function in a multiprocessing pool.
-
-    Note that the model is read from a file each time so there is no need to revert
+    This function is used as a target function in a multiprocessing pool. Since the
+    model is read from a file each time the function runs there is no need to revert
     the model after the optimization.
+
+    Current approach is to calculate the effect of species B on the growth of
+    species A using the equation "G_ta / G_a" where G_ta is the growth rate of
+    species A in the presence of species B and G_a is the growth rate of species
+    A in the absence of species B. The same approach is used to calculate the
+    effect of species A on the growth of species B.
+
+    Note that an infeasible solution is considered the same as no growth.
 
     Parameters
     ----------
@@ -234,33 +245,41 @@ def optimize_pair_model(model_file_name, medium):
         b_solution.fluxes[b_objective] = 0.
 
     # Evaluate the interaction between the two species.
-    if t_solution.status == 'optimal' and a_solution.status == 'optimal' and b_solution.status == 'optimal':
-        a_alone = a_solution.fluxes[a_objective]
-        if a_alone == 0.0:
-            a_alone = float(1e-25)
+    if t_solution.status == 'optimal':
         a_together = t_solution.fluxes[a_objective]
-        a_percent_change = a_together / a_alone
-
-        b_alone = b_solution.fluxes[b_objective]
-        if b_alone == 0.0:
-            b_alone = float(1e-25)
         b_together = t_solution.fluxes[b_objective]
-        b_percent_change = b_together / b_alone
-        details = pd.Series([a_id, b_id, a_together, a_alone, a_percent_change,
-                             b_together, b_alone, b_percent_change],
-                            index=pair_rate_columns)
     else:
-        details = pd.Series([a_id, b_id, 0., 0., 0., 0., 0., 0.], index=pair_rate_columns)
-        if t_solution.status == 'optimal':
-            details.set_value('A_TOGETHER', t_solution.fluxes[a_objective])
-            details.set_value('B_TOGETHER', t_solution.fluxes[b_objective])
-        if a_solution.status == 'optimal':
-            details.set_value('A_ALONE', a_solution.fluxes[a_objective])
-        if b_solution.status == 'optimal':
-            details.set_value('B_ALONE', b_solution.fluxes[b_objective])
-        # @todo Need to rework this to get more data. what if 2 of 3 solutions are optimal?
+        a_together = 0.0
+        b_together = 0.0
 
-    return details
+    if a_solution.status == 'optimal':
+        a_alone = a_solution.fluxes[a_objective]
+    else:
+        a_alone = 0.0
+    if a_alone != 0.0:
+        alone = a_alone
+    else:
+        alone = ALMOST_ZERO
+    if a_together != 0.0 or a_alone != 0.0:
+        a_effect = a_together / alone  # See note above for description
+    else:
+        a_effect = 0.0
+
+    if b_solution.status == 'optimal':
+        b_alone = b_solution.fluxes[b_objective]
+    else:
+        b_alone = 0.0
+    if b_alone != 0.0:
+        alone = b_alone
+    else:
+        alone = ALMOST_ZERO
+    if b_together != 0.0 or b_alone != 0.0:
+        b_effect = b_together / alone  # See note above for description
+    else:
+        b_effect = 0.0
+
+    return pd.Series([a_id, b_id, a_together, a_alone, a_effect, b_together, b_alone, b_effect],
+                     index=pair_rate_columns)
 
 
 def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_name, time_point_id):
@@ -420,7 +439,7 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
     # the death rate at time point t. DynamicGut assumes "G(t) = B(t) - D(t)".
     lambdas = 1 + growth
 
-    # The "alpha1" term in the equation above is defined as "lambda - 1 / K" where
+    # The "alpha1" term in the equation above is defined as "(lambda - 1) / K" where
     # K is the size of the population that the environment has the capacity to
     # support (Equation 3-3). DynamicGut assumes that the carrying capacity is the
     # same for all species in the microbial community.
