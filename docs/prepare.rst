@@ -47,8 +47,8 @@ is the same as the format used by COBRApy for setting the medium on a model.
 Any exchange reactions that are in at least one of the single species models and
 not in the diet conditions have their bound set to 0.
 
-Create an initial density file
-------------------------------
+Create an initial population density file
+-----------------------------------------
 
 A population density is *the size of an organism's population in the community*.
 An initial population density is the starting point for the simulation. By defining

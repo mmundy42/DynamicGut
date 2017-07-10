@@ -16,6 +16,9 @@ from .util import check_for_growth, get_exchange_reaction_ids
 # Logger for this module
 LOGGER = logging.getLogger(__name__)
 
+logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s')  # , level=logging.DEBUG
+
+
 # Column names for two species community growth rate data frame.
 pair_rate_columns = ['A_ID', 'B_ID', 'A_TOGETHER', 'A_ALONE', 'A_EFFECT', 'B_TOGETHER', 'B_ALONE', 'B_EFFECT']
 
@@ -117,14 +120,12 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # Get the initial population density values.
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
     if not set(density_columns).issubset(density.columns):
-        raise ValueError('Required columns {0} not available in population density file "{1}"'
+        raise ValueError('Required columns {0} not available in initial population density file "{1}"'
                          .format(density_columns, density_file_name))
     invalid_fields = density.isnull().values.sum()
     if invalid_fields > 0:
-        raise ValueError('There are {0} fields with invalid values in population density file "{1}"'
+        raise ValueError('There are {0} fields with invalid values in initial population density file "{1}"'
                          .format(invalid_fields, density_file_name))
-
-    # @todo Add more validation of density file, ID is string greater than 0, DENSITY is valid float
 
     # Get the initial diet conditions.
     diet = json.load(open(diet_file_name))
@@ -146,10 +147,21 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # Confirm the model IDs in the initial density file match the model IDs in the
     # list of single species models.
     if density.shape[0] != len(model_ids):
+        for index, row in density.iterrows():
+            if row['ID'] not in model_ids:
+                LOGGER.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
+                             'in list of single species models'.format(row['ID'], index+2, density_file_name))
+        for model_id in model_ids:
+            if not model_id in density.ID.values:
+                LOGGER.error('Model ID "{0}" from list of single species models is not available in '
+                             'initial population density file'.format(model_id))
         raise ValueError('Number of species ({0}) in initial density file does not match '
                          'number of single species models ({1})'.format(density.shape[0], len(model_ids)))
     if density.loc[density['ID'].isin(model_ids)].shape[0] != len(model_ids):
-        # @todo Figure what does not match and report to caller
+        for index, row in density.iterrows():
+            if row['ID'] not in model_ids:
+                LOGGER.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
+                             'in list of single species models'.format(row['ID'], index+2, density_file_name))
         raise ValueError('One or more model IDs in initial density file do not match '
                          'model IDs in single species models')
 
