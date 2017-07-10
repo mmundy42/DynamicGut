@@ -8,9 +8,8 @@ import json
 import logging
 from collections import defaultdict
 
-from mminte import load_model_from_file, single_species_knockout
-from mminte import create_interaction_models, get_all_pairs
-from mminte.interaction_worker import compute_growth_rates, growth_rate_columns, apply_medium
+from mminte import load_model_from_file, single_species_knockout, apply_medium, \
+    create_interaction_models, get_all_pairs
 
 from .util import check_for_growth, get_exchange_reaction_ids
 
@@ -118,8 +117,13 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # Get the initial population density values.
     density = pd.read_csv(density_file_name, dtype={'ID': str, 'DENSITY': float})
     if not set(density_columns).issubset(density.columns):
-        raise ValueError('Required columns {0} not available in population density file {1}'
+        raise ValueError('Required columns {0} not available in population density file "{1}"'
                          .format(density_columns, density_file_name))
+    invalid_fields = density.isnull().values.sum()
+    if invalid_fields > 0:
+        raise ValueError('There are {0} fields with invalid values in population density file "{1}"'
+                         .format(invalid_fields, density_file_name))
+
     # @todo Add more validation of density file, ID is string greater than 0, DENSITY is valid float
 
     # Get the initial diet conditions.
@@ -169,7 +173,8 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
 
         # Calculate the growth rates for each two species model under the current diet conditions.
-        growth_rates, alone = calculate_growth_rates(pair_file_names, diet, pool, pair_rate_file_name, time_point_id)
+        growth_rates, alone = calculate_growth_rates(pair_file_names, diet, pool, pair_rate_file_name, time_point_id,
+                                                     time_point_folder)
 
         # Create the effects matrix.
         effects_matrix = create_effects_matrix(growth_rates, effects_matrix_file_name, time_point_id)
@@ -282,7 +287,8 @@ def optimize_pair_model(model_file_name, medium):
                      index=pair_rate_columns)
 
 
-def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_name, time_point_id):
+def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_name, time_point_id,
+                           time_point_folder):
     """ Optimize the two species community models to get growth rates.
 
     Parameters
@@ -319,7 +325,7 @@ def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_n
     pair_rate.to_csv(pair_rate_file_name, index=False)
 
     # Build a dictionary with single species growth rates and confirm that the
-    # values are consistent.
+    # values are consistent. Add warned IDs to a set.
     alone_rate = dict()
     for index, row in pair_rate.iterrows():
         if row['A_ID'] in alone_rate:
