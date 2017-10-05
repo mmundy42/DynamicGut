@@ -1,8 +1,14 @@
 from os import listdir
 from os.path import join
 import json
+import logging
 
-from mminte import load_model_from_file, save_model_to_file
+from cobra.util.solver import linear_reaction_coefficients, set_objective
+
+from mminte import load_model_from_file, save_model_to_file, apply_medium
+
+# Logger for this module
+LOGGER = logging.getLogger(__name__)
 
 
 def find_models_in_folder(source_folder):
@@ -142,3 +148,47 @@ def set_model_id_prefix(model_file_names, prefix='M'):
         model.id = prefix + model.id
         save_model_to_file(model, name)
     return
+
+
+def optimize_for_species(model_file_name, species_id, medium, time_point_folder):
+    """ Knock out the other species from a two species model, optimize, and save results.
+    """
+
+    LOGGER.info('Loading model {0} to optimize for {1}'.format(model_file_name, species_id))
+    pair_model = load_model_from_file(model_file_name)
+
+    # Figure out the species to knock out in the pair community model.
+    species_index = -1
+    for index in range(len(pair_model.notes['species'])):
+        if pair_model.notes['species'][index]['id'] == species_id:
+            species_index = index
+    if species_index < 0:
+        raise Exception('Species {0} is not a member of the community'.format(species_id))
+    if species_index == 0:
+        knockout_index = 1
+    else:
+        knockout_index = 0
+    knockout_id = pair_model.notes['species'][knockout_index]['id']
+    LOGGER.info('Going to knock out {0} from index {1}'.format(knockout_id, knockout_index))
+
+    with pair_model:
+        # Apply the medium.
+        apply_medium(pair_model, medium)
+
+        # Knock out all of the reactions for the specified species.
+        knockout_reactions = pair_model.reactions.query(lambda r: r.startswith(knockout_id), 'id')
+        for reaction in knockout_reactions:
+            reaction.knock_out()
+
+        # Remove the species objective from the community model objective.
+        knockout_objective = pair_model.reactions.get_by_id(pair_model.notes['species'][knockout_index]['objective'])
+        linear_coefficients = linear_reaction_coefficients(pair_model)
+        del linear_coefficients[knockout_objective]
+        set_objective(pair_model, linear_coefficients)
+        save_model_to_file(pair_model, join(time_point_folder, pair_model.id+'.json'))
+
+        # Optimize the community model with the specified species knocked out.
+        solution = pair_model.optimize()
+        solution.fluxes.to_json(join(time_point_folder, pair_model.id+'-solution.json'))  # , orient='records', lines=True
+
+    return solution

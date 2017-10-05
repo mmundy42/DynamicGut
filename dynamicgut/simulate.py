@@ -11,7 +11,7 @@ from collections import defaultdict
 from mminte import load_model_from_file, single_species_knockout, apply_medium, \
     create_interaction_models, get_all_pairs
 
-from .util import check_for_growth, get_exchange_reaction_ids
+from .util import check_for_growth, get_exchange_reaction_ids, optimize_for_species
 
 # Logger for this module
 LOGGER = logging.getLogger(__name__)
@@ -137,7 +137,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
     initial_exchanges = set(diet.keys())
     if initial_exchanges > model_exchanges:
-        warn('Diet file {0} contains more exchange reactions than there are in single species models'
+        warn('Diet file "{0}" contains more exchange reactions than there are in single species models'
              .format(diet_file_name))
     if model_exchanges.issuperset(initial_exchanges):  # @todo is this necessary?
         for rxn_id in (model_exchanges - initial_exchanges):
@@ -150,7 +150,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         for index, row in density.iterrows():
             if row['ID'] not in model_ids:
                 LOGGER.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
-                             'in list of single species models'.format(row['ID'], index+2, density_file_name))
+                             'in list of single species models'.format(row['ID'], index + 2, density_file_name))
         for model_id in model_ids:
             if not model_id in density.ID.values:
                 LOGGER.error('Model ID "{0}" from list of single species models is not available in '
@@ -161,9 +161,16 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         for index, row in density.iterrows():
             if row['ID'] not in model_ids:
                 LOGGER.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
-                             'in list of single species models'.format(row['ID'], index+2, density_file_name))
+                             'in list of single species models'.format(row['ID'], index + 2, density_file_name))
         raise ValueError('One or more model IDs in initial density file do not match '
                          'model IDs in single species models')
+
+    # Find all of the pair community models that each single species model is a member of.
+    single_to_pairs = defaultdict(list)
+    for model_file_name in pair_file_names:
+        pair_model = load_model_from_file(model_file_name)
+        single_to_pairs[pair_model.notes['species'][0]['id']].append(model_file_name)
+        single_to_pairs[pair_model.notes['species'][1]['id']].append(model_file_name)
 
     # Create a job pool for running optimizations.
     if n_processes is None:
@@ -175,7 +182,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         # Start this time point.
         time_point_id = '{0:04d}'.format(time_point + 1)
         LOGGER.info('[%s] STARTED TIME POINT', time_point_id)
-        time_point_folder = join(data_folder, 'timepoint-'+time_point_id)
+        time_point_folder = join(data_folder, 'timepoint-' + time_point_id)
         if not exists(time_point_folder):
             makedirs(time_point_folder)
         pair_rate_file_name = join(time_point_folder, 'pair-rates-{0}.csv'.format(time_point_id))
@@ -186,7 +193,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
 
         # Calculate the growth rates for each two species model under the current diet conditions.
         growth_rates, alone = calculate_growth_rates(pair_file_names, diet, pool, pair_rate_file_name, time_point_id,
-                                                     time_point_folder)
+                                                     time_point_folder, single_to_pairs)
 
         # Create the effects matrix.
         effects_matrix = create_effects_matrix(growth_rates, effects_matrix_file_name, time_point_id)
@@ -300,7 +307,7 @@ def optimize_pair_model(model_file_name, medium):
 
 
 def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_name, time_point_id,
-                           time_point_folder):
+                           time_point_folder, single_to_pairs):
     """ Optimize the two species community models to get growth rates.
 
     Parameters
@@ -327,31 +334,45 @@ def calculate_growth_rates(pair_file_names, current_diet, pool, pair_rate_file_n
     LOGGER.info('[%s] Optimizing two species community models ...', time_point_id)
 
     # Optimize all of the two species community models on the current diet conditions.
-    result_list = [pool.apply_async(optimize_pair_model, (file_name, current_diet))
-                   for file_name in pair_file_names]
+    # result_list = [pool.apply_async(optimize_pair_model, (file_name, current_diet))
+    #                for file_name in pair_file_names]
 
     # Build a DataFrame with the pair growth rates.
     pair_rate = pd.DataFrame(columns=pair_rate_columns)
-    for result in result_list:
-        pair_rate = pair_rate.append(result.get(), ignore_index=True)
+    for file_name in pair_file_names:
+        pr = optimize_pair_model(file_name, current_diet)
+        pair_rate = pair_rate.append(pr, ignore_index=True)
+    # for result in result_list:
+    #     pair_rate = pair_rate.append(result.get(), ignore_index=True)
     pair_rate.to_csv(pair_rate_file_name, index=False)
 
     # Build a dictionary with single species growth rates and confirm that the
-    # values are consistent. Add warned IDs to a set.
+    # values are consistent.
     alone_rate = dict()
+    inconsistent = set()
     for index, row in pair_rate.iterrows():
         if row['A_ID'] in alone_rate:
             if not np.isclose(row['A_ALONE'], alone_rate[row['A_ID']]):
-                warn('Model {0} has inconsistent growth rates: {1} vs {2}'
-                     .format(row['A_ID'], row['A_ALONE'], alone_rate[row['A_ID']]))
+                inconsistent.add(row['A_ID'])
+                LOGGER.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
+                            .format(time_point_id, row['A_ID'], row['A_ALONE'], alone_rate[row['A_ID']]))
         else:
             alone_rate[row['A_ID']] = row['A_ALONE']
         if row['B_ID'] in alone_rate:
             if not np.isclose(row['B_ALONE'], alone_rate[row['B_ID']]):
-                warn('Model {0} has inconsistent growth rates: {1} vs {2}'
-                     .format(row['B_ID'], row['B_ALONE'], alone_rate[row['B_ID']]))
+                inconsistent.add(row['B_ID'])
+                LOGGER.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
+                            .format(time_point_id, row['B_ID'], row['B_ALONE'], alone_rate[row['B_ID']]))
         else:
             alone_rate[row['B_ID']] = row['B_ALONE']
+
+    # If there are any inconsistent single species growth rates, knock out and optimize
+    # again and save data to debug.
+    if len(inconsistent) > 0:
+        # Slow for now.
+        for species_id in inconsistent:
+            for pair_file_name in single_to_pairs[species_id]:
+                optimize_for_species(pair_file_name, species_id, current_diet, time_point_folder)
 
     return pair_rate, alone_rate
 
@@ -393,6 +414,7 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
                      ignore_index=True)
     effects = raw.pivot_table(index='EFFECT', columns='BECAUSE_OF', values='CHANGE')
     effects = effects.replace(np.nan, 1.0, regex=True)
+    effects = effects.replace(0.0, 1e-25, regex=True)
     effects.to_csv(effects_matrix_file_name)
     return effects
 
@@ -475,7 +497,9 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
     # @todo Can this be removed because of statement below
     # @todo Can this be done when calculating effects matrix?
     # @todo An intial effect greater 1 turns into a negative number which decreases value of denominator
-    effects = 1 - effects
+    # effects = 1 - effects
+    effects = -(np.log10(effects))  # @TODO: Added by Lena (18 July 2017)
+    effects = effects * alphas  # @TODO: Added by Lena (18 July 2017)
 
     # Calculate the "gamma1 * N2(t)" term in the equation above. The resulting
     # total_effects vector represents the total effect of all other species on
@@ -627,6 +651,8 @@ def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name
     next_diet = current_diet
     for rxn_id in new_fluxes:
         next_diet[rxn_id] += new_fluxes[rxn_id]
+        if next_diet[rxn_id] < 0.:
+            next_diet[rxn_id] = 0.
     json.dump(next_diet, open(next_diet_file_name, 'w'), indent=4)
 
     return next_diet
