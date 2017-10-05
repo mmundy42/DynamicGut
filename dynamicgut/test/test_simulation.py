@@ -3,16 +3,13 @@ from shutil import rmtree
 
 import dynamicgut
 
+
 class TestSimulation:
 
     def test_simulation(self, data_folder, model_files, test_folder):
-        single_folder = join(test_folder, 'single')
         pair_folder = join(test_folder, 'pair')
-        single_models, pair_models = dynamicgut.prepare_simulation([join(data_folder, m) for m in model_files],
-                                                                   single_folder, pair_folder)
-        assert len(single_models) == 3
-        for filename in single_models:
-            assert filename.startswith(single_folder)
+        single_models = [join(data_folder, m) for m in model_files]
+        pair_models = dynamicgut.prepare(single_models, pair_folder)
         assert len(pair_models) == 3
         for filename in pair_models:
             assert filename.startswith(pair_folder)
@@ -24,3 +21,5 @@ class TestSimulation:
         # Check the values in timepoint-0009/density-0009.csv
         # What about values in timepoint-0009/effects-0009.csv and rates-0009.csv
         rmtree(test_folder)
+
+    # more tests, bad path to single model, bad path to pair output folder, single model fails to optimize
