@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
 requirements = [
-    'cobra>=0.6.0',
+    'cobra>=0.8.0',
     'six',
-    'mminte>=1.0.2',
-    'mackinac>=0.8.4'
+    'pandas',
+    'micom>=0.6.1'
 ]
 
 try:
