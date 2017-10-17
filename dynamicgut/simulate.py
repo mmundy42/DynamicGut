@@ -1,4 +1,4 @@
-from os import makedirs
+from os import makedirs, stat
 from os.path import join, exists
 from warnings import warn
 from multiprocessing import Pool
@@ -35,7 +35,7 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
     n_processes: int, optional
         Number of processes in job pool or None to run without multiprocessing
     solver : str, optional
-        Name of solver to use for optimization or None to use default solver
+        Name of solver to use for optimization or None to use default solver (glpk)
 
     Returns
     -------
@@ -113,6 +113,10 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     if time_step <= 0.0 or time_step > 1.0:
         raise ValueError('time_step parameter must be a value greater than 0 and less than or equal to 1')
 
+    # Create the data folder if needed (exception is raised if there is a problem).
+    if not exists(data_folder):
+        makedirs(data_folder)
+
     # Get the initial population density values.
     density = pd.read_csv(density_file_name, dtype={'MODEL_ID': str, 'DENSITY': float})
     if not set(density_columns).issubset(density.columns):
@@ -187,7 +191,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
 
         # Get the exchange reaction fluxes from optimizing single species models.
         exchange_fluxes = get_exchange_fluxes(single_file_names, diet, single_rate_file_name,
-                                              time_point_id, n_processes)
+                                              time_point_id, n_processes, solver)
 
         # Create diet conditions for next time point.
         diet = create_next_diet(diet, exchange_fluxes, density, next_diet_file_name, time_step, time_point_id)
@@ -416,7 +420,8 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
     return next_density
 
 
-def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, time_point_id, n_processes=None):
+def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, time_point_id,
+                        n_processes=None, solver=None):
     """ Optimize the single species models to get exchange reaction fluxes.
 
     Need more explanation here on why this is done.
@@ -433,6 +438,8 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
         ID of current time point
     n_processes : int, optional
         Number of processes in job pool or None to run without multiprocessing
+    solver : str, optional
+        Name of solver to use for optimization
 
     Returns
     -------
@@ -444,10 +451,11 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
 
     # Optimize all of the single species models on the current diet conditions.
     if n_processes is None:
-        detail_list = [optimize_single_model(file_name, current_diet) for file_name in single_file_names]
+        detail_list = [optimize_single_model(file_name, current_diet, solver=solver)
+                       for file_name in single_file_names]
     else:
         pool = Pool(n_processes)
-        result_list = [pool.apply_async(optimize_single_model, (file_name, current_diet))
+        result_list = [pool.apply_async(optimize_single_model, (file_name, current_diet, 'e', solver))
                        for file_name in single_file_names]
         detail_list = [result.get() for result in result_list]
         pool.close()
