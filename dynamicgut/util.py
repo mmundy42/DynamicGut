@@ -14,9 +14,6 @@ from micom import Community, load_pickle
 
 from .constants import pair_rate_columns, NO_GROWTH, ALMOST_ZERO
 
-# Logger for this module
-LOGGER = logging.getLogger(__name__)
-
 
 def check_for_growth(model_file_name, solver=None):
     """ Optimize a model and check for growth under conditions set in model.

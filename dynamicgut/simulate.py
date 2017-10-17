@@ -1,4 +1,4 @@
-from os import makedirs, stat
+from os import makedirs
 from os.path import join, exists
 from warnings import warn
 from multiprocessing import Pool
@@ -12,10 +12,7 @@ from itertools import combinations
 from .util import check_for_growth, create_pair_model, get_exchange_reaction_ids, optimize_single_model, \
     optimize_pair_model
 from .constants import single_rate_columns, pair_rate_columns, density_columns, NO_GROWTH
-
-# Logger for this module
-LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.INFO)
+from logger import logger
 
 # For debugging pandas
 # set_option('display.width', 1000)
@@ -45,7 +42,7 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
 
     # If requested, confirm all of the single species input models produce growth as provided.
     if optimize:
-        LOGGER.info('Started checking %d single models for growth', len(single_file_names))
+        logger.info('Started checking %d single models for growth', len(single_file_names))
         if n_processes is None:
             summary_list = [check_for_growth(file_name, solver)
                             for file_name in single_file_names]
@@ -58,14 +55,14 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
         for summary in summary_list:
             if not summary['grows']:
                 warn(summary['message'])
-        LOGGER.info('Finished checking single models for growth')
+        logger.info('Finished checking single models for growth')
 
     # Create folder for output pair models if needed.
     if not exists(pair_model_folder):
         makedirs(pair_model_folder)
 
     # Create all of the pair models and store in specified folder.
-    LOGGER.info('Started creating two species community models')
+    logger.info('Started creating two species community models')
     pair_list = [pair for pair in combinations(single_file_names, 2)]
     if n_processes is None:
         pair_file_names = [create_pair_model(pair, pair_model_folder)
@@ -76,7 +73,7 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
                        for pair in pair_list]
         pair_file_names = [result.get() for result in result_list]
         pool.close()
-    LOGGER.info('Finished creating two species community models')
+    logger.info('Finished creating two species community models')
     return pair_file_names
 
 
@@ -149,18 +146,18 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     if density.shape[0] != len(model_ids):
         for index, row in density.iterrows():
             if row['MODEL_ID'] not in model_ids:
-                LOGGER.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
+                logger.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
                              'in list of single species models'.format(row['ID'], index + 2, density_file_name))
         for model_id in model_ids:
             if model_id not in density.ID.values:
-                LOGGER.error('Model ID "{0}" from list of single species models is not available in '
+                logger.error('Model ID "{0}" from list of single species models is not available in '
                              'initial population density file'.format(model_id))
         raise ValueError('Number of species ({0}) in initial density file does not match '
                          'number of single species models ({1})'.format(density.shape[0], len(model_ids)))
     if density.loc[density['MODEL_ID'].isin(model_ids)].shape[0] != len(model_ids):
         for index, row in density.iterrows():
             if row['MODEL_ID'] not in model_ids:
-                LOGGER.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
+                logger.error('Model ID "{0}" on line {1} of initial population density file "{2}" is not available '
                              'in list of single species models'.format(row['ID'], index + 2, density_file_name))
         raise ValueError('One or more model IDs in initial density file do not match '
                          'model IDs in single species models')
@@ -169,7 +166,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     for time_point in time_interval:
         # Start this time point.
         time_point_id = '{0:04d}'.format(time_point + 1)
-        LOGGER.info('[%s] STARTED TIME POINT', time_point_id)
+        logger.info('[%s] STARTED TIME POINT', time_point_id)
         time_point_folder = join(data_folder, 'timepoint-' + time_point_id)
         if not exists(time_point_folder):
             makedirs(time_point_folder)
@@ -230,7 +227,7 @@ def calculate_growth_rates(pair_file_names, current_diet, pair_rate_file_name, t
         Single species growth rates
     """
 
-    LOGGER.info('[%s] Optimizing two species community models ...', time_point_id)
+    logger.info('[%s] Optimizing two species community models ...', time_point_id)
 
     # Optimize all of the two species community models on the current diet conditions.
     if n_processes is None:
@@ -257,14 +254,14 @@ def calculate_growth_rates(pair_file_names, current_diet, pair_rate_file_name, t
         if row['A_ID'] in alone_rate:
             if not np.isclose(row['A_ALONE'], alone_rate[row['A_ID']]):
                 inconsistent.add(row['A_ID'])
-                LOGGER.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
+                logger.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
                             .format(time_point_id, row['A_ID'], row['A_ALONE'], alone_rate[row['A_ID']]))
         else:
             alone_rate[row['A_ID']] = row['A_ALONE']
         if row['B_ID'] in alone_rate:
             if not np.isclose(row['B_ALONE'], alone_rate[row['B_ID']]):
                 inconsistent.add(row['B_ID'])
-                LOGGER.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
+                logger.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
                             .format(time_point_id, row['B_ID'], row['B_ALONE'], alone_rate[row['B_ID']]))
         else:
             alone_rate[row['B_ID']] = row['B_ALONE']
@@ -295,7 +292,7 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
         Effect of one species on the growth of another species
     """
 
-    LOGGER.info('[%s] Creating effects matrix ...', time_point_id)
+    logger.info('[%s] Creating effects matrix ...', time_point_id)
 
     # Extract the species model IDs and effect values from the input data frame.
     a_id = pair_rate['A_ID'].tolist()
@@ -347,7 +344,7 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
         Updated population densities for species in community
     """
 
-    LOGGER.info('[%s] Calculating population densities ...', time_point_id)
+    logger.info('[%s] Calculating population densities ...', time_point_id)
 
     # Confirm that the order of the species in the effects matrix matches the
     # order in the density data frame.
@@ -447,7 +444,7 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
         Dictionary keyed by model ID of fluxes for exchange reactions
     """
 
-    LOGGER.info('[%s] Optimizing single species models ...', time_point_id)
+    logger.info('[%s] Optimizing single species models ...', time_point_id)
 
     # Optimize all of the single species models on the current diet conditions.
     if n_processes is None:
@@ -465,7 +462,7 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
     exchange_fluxes = dict()
     for details in detail_list:
         if details['objective_value'] < NO_GROWTH:
-            LOGGER.warn('[%s] Model %s did not grow on current diet conditions', time_point_id, details['model_id'])
+            logger.warn('[%s] Model %s did not grow on current diet conditions', time_point_id, details['model_id'])
         exchange_fluxes[details['model_id']] = details['exchange_fluxes']
         rate = pd.Series([details['model_id'], details['status'], details['objective_value']],
                          index=single_rate_columns)
@@ -498,7 +495,7 @@ def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name
         Dictionary with exchange reaction ID as key and bound as value
     """
 
-    LOGGER.info('[%s] Calculating diet conditions for next time point ...', time_point_id)
+    logger.info('[%s] Calculating diet conditions for next time point ...', time_point_id)
 
     # Calculate consumption and production of every metabolite in the diet at
     # this time point, adjusted by the population density and time step.
