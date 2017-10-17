@@ -6,7 +6,7 @@ from tempfile import mkdtemp
 @pytest.fixture(scope='session')
 def data_folder():
     dynamicgut_folder = abspath(join(dirname(abspath(__file__)), '..'))
-    return join(dynamicgut_folder, 'test', 'data', '')
+    return join(dynamicgut_folder, 'test', 'data')
 
 
 @pytest.fixture(scope='session')
