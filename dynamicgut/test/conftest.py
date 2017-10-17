@@ -19,3 +19,10 @@ def model_files():
     return ['Bacteroides_thetaiotaomicron_VPI_5482.xml',
             'Escherichia_coli_str_K_12_substr_MG1655.xml',
             'Eubacterium_rectale_ATCC_33656.xml']
+
+
+@pytest.fixture(scope='session')
+def pair_model_files():
+    return ['Btheta+Ecoli.pickle',
+            'Btheta+Erectale.pickle',
+            'Ecoli+Erectale.pickle']
