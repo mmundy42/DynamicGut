@@ -8,6 +8,7 @@ from six import iteritems
 from collections import defaultdict
 
 from cobra.exceptions import OptimizationError
+from cobra.io import write_sbml_model
 from micom.util import load_model
 from micom import Community, load_pickle
 
@@ -38,7 +39,7 @@ def check_for_growth(model_file_name, solver=None):
         model.solver = solver
     summary = {'grows': True, 'message': None}
     try:
-        value = model.slim_optimize()
+        value = model.slim_optimize()  # @todo use a timeout
         if value <= NO_GROWTH:
             summary['grows'] = False
             summary['message'] = 'Model {0} in file {1} does not produce growth under given conditions' \
@@ -83,9 +84,10 @@ def optimize_single_model(model_file_name, medium, compartment='e', solver=None)
     apply_medium(model, make_medium(exchange_reactions, medium, compartment))
     if solver is not None:
         model.solver = solver
-    solution = model.optimize()
+    solution = model.optimize()  # @todo add timeout
 
     # Get the details on the solution.
+    # @todo Need to check for timeout
     details = dict()
     details['model_id'] = model.id
     details['status'] = solution.status
@@ -100,7 +102,7 @@ def optimize_single_model(model_file_name, medium, compartment='e', solver=None)
     return details
 
 
-def create_pair_model(pair, output_folder):
+def create_pair_model(pair, output_folder, to_sbml=False):
     """ Create a two species community model.
 
     Parameters
@@ -109,6 +111,8 @@ def create_pair_model(pair, output_folder):
         Each element is a path to a single species model file
     output_folder : str
         Path to output folder where community model JSON file is saved
+    to_sbml : boolean, optional
+        When True also save community model in SBML format
 
     Returns
     -------
@@ -123,8 +127,10 @@ def create_pair_model(pair, output_folder):
 
     # Create a two species community model and save to a file.
     taxonomy = pd.DataFrame({"id": [model_a.id, model_b.id], "file": pair})
-    community = Community(taxonomy, id=community_id)
+    community = Community(taxonomy, id=community_id, progress=False)
     community_file_name = join(output_folder, community.id + '.pickle')
+    if to_sbml:
+        write_sbml_model(community, join(output_folder, community.id + '.sbml'))
     community.to_pickle(community_file_name)
     return community_file_name
 
@@ -190,7 +196,7 @@ def optimize_pair_model(model_file_name, medium, solver=None):
     if solver is not None:
         pair_model.solver = solver
     t_solution = pair_model.optimize(slim=True)
-    a_alone = pair_model.optimize_single(a_id)
+    a_alone = pair_model.optimize_single(a_id)  # @todo Check with Christian on slim
     b_alone = pair_model.optimize_single(b_id)
 
     # Round very small growth rates to zero.
@@ -307,7 +313,7 @@ def make_medium(exchange_reactions, global_medium, compartment):
     ----------
     exchange_reactions : cobra.core.DictList
         List of exchange reactions from a model
-    global_medium : dict
+    global_medium : dict  @todo call this a diet something or other
         Dictionary of the bounds for each metabolite in an exchange reaction
     compartment : str
         ID of compartment used as a suffix on exchange reaction IDs
