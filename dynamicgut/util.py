@@ -1,10 +1,8 @@
-from os import listdir
 from os.path import join
 import json
-import logging
 import pandas as pd
 import re
-from six import iteritems
+from six import iteritems, iterkeys
 from collections import defaultdict
 
 from cobra.exceptions import OptimizationError
@@ -13,6 +11,7 @@ from micom.util import load_model
 from micom import Community, load_pickle
 
 from .constants import pair_rate_columns, NO_GROWTH, ALMOST_ZERO
+from .logger import logger
 
 
 def check_for_growth(model_file_name, solver=None):
@@ -94,7 +93,8 @@ def optimize_single_model(model_file_name, medium, compartment='e', solver=None)
         suffix = re.compile(r'_([{}])$'.format(compartment))
         for rxn in exchange_reactions:
             if solution.fluxes[rxn.id] != 0.0:
-                met_id = re.sub(suffix, '', rxn.metabolites.keys()[0].id)
+                met = next(iter(iterkeys(rxn.metabolites)))
+                met_id = re.sub(suffix, '', met.id)
                 details['exchange_fluxes'][met_id] = solution.fluxes[rxn.id]
     return details
 
@@ -186,6 +186,7 @@ def optimize_pair_model(model_file_name, medium, solver=None):
     """
 
     # Optimize the model the two species community model.
+    logger.debug('Optimizing pair model %s', model_file_name)
     pair_model = load_pickle(model_file_name)
     a_id = pair_model.taxonomy['id'][0]
     b_id = pair_model.taxonomy['id'][1]
@@ -232,6 +233,7 @@ def optimize_pair_model(model_file_name, medium, solver=None):
     else:
         b_effect = 0.0
 
+    logger.debug('Model %s: %f %f %f %f', pair_model.id, a_together, a_alone, b_together, b_alone)
     return pd.Series([a_id, b_id, a_together, a_alone, a_effect, b_together, b_alone, b_effect],
                      index=pair_rate_columns)
 
@@ -324,7 +326,8 @@ def make_medium(exchange_reactions, global_medium, compartment):
     suffix = re.compile(r'_([{}])$'.format(compartment))
     medium = dict()
     for rxn in exchange_reactions:
-        met_id = re.sub(suffix, '', rxn.metabolites.keys()[0].id)
+        met = next(iter(iterkeys(rxn.metabolites)))
+        met_id = re.sub(suffix, '', met.id)
         try:
             medium[rxn.id] = global_medium[met_id]
         except KeyError:
@@ -373,54 +376,4 @@ def apply_medium(model, medium):
     for reaction in (exchange_reactions - medium_reactions):
         set_active_bound(reaction, 0)
 
-    return
-
-
-def find_models_in_folder(source_folder):
-    """ Get a list of model file path names based on supported extensions.
-
-    Note that the contents of a file with one of the supported extensions might
-    not be a model so this should only be used for folders where all of the files
-    are model files.
-
-    Parameters
-    ----------
-    source_folder : str
-        Path to folder with source model files
-
-    Returns
-    -------
-    list of str
-        List of path names to source model files
-    """
-
-    # @todo Could use write_funcs dict here
-    source_models = list()
-    for filename in listdir(source_folder):
-        if filename.endswith('.mat') or filename.endswith('.xml') or \
-                filename.endswith('.sbml') or filename.endswith('.json'):
-            source_models.append(join(source_folder, filename))
-    return source_models
-
-
-def set_model_id_prefix(model_file_names, prefix='M'):
-    """ Set a prefix on model IDs for all models in a list of models.
-
-    Model IDs must start with an alphabetic character so they are interpreted as
-    strings in data frames. Models created by ModelSEED typically use a PATRIC
-    genome ID as the model ID which is a number.
-
-    Parameters
-    ----------
-    model_file_names : list of str
-        List of path names to model files
-    prefix : str, optional
-        String to use as prefix for model IDs
-    """
-
-    for name in model_file_names:
-        model = load_model(name)
-        model.id = prefix + model.id
-        # @todo Need to handle saving models
-        # save_model_to_file(model, name)
     return

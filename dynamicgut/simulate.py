@@ -5,14 +5,13 @@ from multiprocessing import Pool
 import pandas as pd
 import numpy as np
 import json
-import logging
 from collections import defaultdict
 from itertools import combinations
 
 from .util import check_for_growth, create_pair_model, get_exchange_reaction_ids, optimize_single_model, \
     optimize_pair_model
 from .constants import single_rate_columns, pair_rate_columns, density_columns, NO_GROWTH
-from logger import logger
+from .logger import logger
 
 # For debugging pandas
 # set_option('display.width', 1000)
@@ -106,15 +105,20 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         Name of solver to use for optimization or None to use default solver
     """
 
-    # Validate time_step parameter.
+    # Basic validation of input parameters.
     if time_step <= 0.0 or time_step > 1.0:
-        raise ValueError('time_step parameter must be a value greater than 0 and less than or equal to 1')
+        raise ValueError('The value of the time_step parameter must be greater than 0 and less than or equal to 1')
+    if len(single_file_names) < 2:
+        raise ValueError('There must be at least two models in list of single species model files')
+    if len(pair_file_names) < 1:
+        raise ValueError('There must be at least one model in list of two species community model files')
 
     # Create the data folder if needed (exception is raised if there is a problem).
     if not exists(data_folder):
         makedirs(data_folder)
 
     # Get the initial population density values.
+    logger.info('Reading initial population density from "%s"', density_file_name)
     density = pd.read_csv(density_file_name, dtype={'MODEL_ID': str, 'DENSITY': float})
     if not set(density_columns).issubset(density.columns):
         raise ValueError('Required columns {0} not available in initial population density file "{1}"'
@@ -131,6 +135,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # species models that are not in the initial diet. This allows metabolites
     # produced by a species to become available in the diet conditions during the
     # simulation.
+    logger.info('Creating initial diet using exchange reactions from single species models')
     model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
     initial_exchanges = set(diet.keys())
     if initial_exchanges > model_exchanges:
@@ -227,7 +232,7 @@ def calculate_growth_rates(pair_file_names, current_diet, pair_rate_file_name, t
         Single species growth rates
     """
 
-    logger.info('[%s] Optimizing two species community models ...', time_point_id)
+    logger.info('[%s] Optimizing %d two species community models ...', time_point_id, len(pair_file_names))
 
     # Optimize all of the two species community models on the current diet conditions.
     if n_processes is None:
