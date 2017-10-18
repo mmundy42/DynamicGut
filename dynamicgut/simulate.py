@@ -7,9 +7,10 @@ import numpy as np
 import json
 from collections import defaultdict
 from itertools import combinations
+from six import iterkeys
 
-from .util import check_for_growth, create_pair_model, get_exchange_reaction_ids, optimize_single_model, \
-    optimize_pair_model
+from .util import check_for_growth, create_pair_model, optimize_single_model, optimize_pair_model
+from .modelutil import get_exchange_reaction_ids
 from .constants import single_rate_columns, pair_rate_columns, density_columns, NO_GROWTH
 from .logger import logger
 
@@ -128,22 +129,20 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         raise ValueError('There are {0} fields with invalid values in initial population density file "{1}"'
                          .format(invalid_fields, density_file_name))
 
-    # Get the initial diet conditions.
-    diet = json.load(open(diet_file_name))
-
     # Set diet for first time step by adding exchange reactions from the single
     # species models that are not in the initial diet. This allows metabolites
     # produced by a species to become available in the diet conditions during the
     # simulation.
-    logger.info('Creating initial diet using exchange reactions from single species models')
+    logger.info('Creating initial diet using exchange reactions from %d single species models', len(single_file_names))
+    diet = json.load(open(diet_file_name))
     model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
-    initial_exchanges = set(diet.keys())
+    initial_exchanges = set(iterkeys(diet))
     if initial_exchanges > model_exchanges:
         warn('Diet file "{0}" contains more exchange reactions than there are in single species models'
              .format(diet_file_name))
-    if model_exchanges.issuperset(initial_exchanges):  # @todo is this necessary?
-        for rxn_id in (model_exchanges - initial_exchanges):
-            diet[rxn_id] = 0.0
+    if model_exchanges.issuperset(initial_exchanges):
+        for met_id in (model_exchanges - initial_exchanges):
+            diet[met_id] = 0.0
     json.dump(diet, open(join(data_folder, 'initial-diet.json'), 'w'), indent=4)
 
     # Confirm the model IDs in the initial density file match the model IDs in the
@@ -507,19 +506,19 @@ def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name
     new_fluxes = defaultdict(float)
     for species_id in exchange_fluxes:
         row = density.loc[density['MODEL_ID'] == species_id]
-        for rxn_id in exchange_fluxes[species_id]:
+        for met_id in exchange_fluxes[species_id]:
             # convert to metabolites here
             # only have a rxn_id in exchange fluxes and not the reaction object which has the metabolite
-            value = exchange_fluxes[species_id][rxn_id] * row.iloc[0]['DENSITY'] * time_step
-            new_fluxes[rxn_id] += value
+            value = exchange_fluxes[species_id][met_id] * row.iloc[0]['DENSITY'] * time_step
+            new_fluxes[met_id] += value
 
     # Update the current diet conditions to create the diet conditions for the
     # next time point.
     next_diet = current_diet
-    for rxn_id in new_fluxes:
-        next_diet[rxn_id] += new_fluxes[rxn_id]
-        if next_diet[rxn_id] < 0.:
-            next_diet[rxn_id] = 0.
+    for met_id in new_fluxes:
+        next_diet[met_id] += new_fluxes[met_id]
+        if next_diet[met_id] < 0.:
+            next_diet[met_id] = 0.
     json.dump(next_diet, open(next_diet_file_name, 'w'), indent=4)
 
     return next_diet
