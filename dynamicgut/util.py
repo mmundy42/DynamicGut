@@ -46,22 +46,22 @@ def check_for_growth(model_file_name, solver=None):
     return summary
 
 
-def optimize_single_model(model_file_name, medium, compartment='e', solver=None):
-    """ Optimize a single species model on a given medium.
+def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
+    """ Optimize a single species model on a given diet conditions.
 
     This function can be used as a target function in a multiprocessing pool.
 
-    Note that we chose to read the model from a file each time instead of loading
-    the model into memory once at the beginning of the simulation. This lowers
-    the memory requirements of the simulation and there is no need to revert the
-    model after the optimization. But there are more accesses of the file system.
+    Since the model is read from a file each time the function runs there is
+    no need to revert the model after the optimization. This lowers the memory
+    requirements of the simulation but there are more accesses of the file
+    system.
 
     Parameters
     ----------
     model_file_name : str
         Path to single species model file
-    medium : dict
-        Dictionary with global metabolite ID as key and bound as value
+    diet : dict
+        Dictionary with base metabolite ID as key and bound as value
     compartment : str
         Compartment ID for extracellular compartment in exchange reactions
     solver : str, optional
@@ -71,13 +71,13 @@ def optimize_single_model(model_file_name, medium, compartment='e', solver=None)
     -------
     dict
         Dictionary with details on solution where exchange reaction fluxes are
-        returned by global metabolite ID
+        returned by base metabolite ID
     """
 
     # Load, apply the medium, and optimize the model.
     model = load_model(model_file_name)
     exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
-    apply_medium(model, make_medium(exchange_reactions, medium, compartment))
+    apply_medium(model, make_medium(exchange_reactions, diet, compartment))
     if solver is not None:
         model.solver = solver
     solution = model.optimize()  # @todo add timeout
@@ -155,12 +155,15 @@ def map_single_to_pairs(pair_file_names):
     return single_to_pairs
 
 
-def optimize_pair_model(model_file_name, medium, solver=None):
+def optimize_pair_model(model_file_name, diet, solver=None):
     """ Optimize a two species community model.
 
     This function can be used as a target function in a multiprocessing pool.
+
     Since the model is read from a file each time the function runs there is
-    no need to revert the model after the optimization.
+    no need to revert the model after the optimization. This lowers the memory
+    requirements of the simulation but there are more accesses of the file
+    system.
 
     Current approach is to calculate the effect of species B on the growth of
     species A using the equation "G_ta / G_a" where G_ta is the growth rate of
@@ -174,8 +177,8 @@ def optimize_pair_model(model_file_name, medium, solver=None):
     ----------
     model_file_name : str
         Path to two species community model file
-    medium : dict
-        Dictionary with global metabolite ID as key and bound as value
+    diet : dict
+        Dictionary with base metabolite ID as key and bound as value
     solver : str, optional
         Name of solver to use for optimization or None to use default solver
 
@@ -190,7 +193,7 @@ def optimize_pair_model(model_file_name, medium, solver=None):
     pair_model = load_pickle(model_file_name)
     a_id = pair_model.taxonomy['id'][0]
     b_id = pair_model.taxonomy['id'][1]
-    pair_model.medium = make_medium(pair_model.exchanges, medium, 'm')
+    pair_model.medium = make_medium(pair_model.exchanges, diet, 'm')
     if solver is not None:
         pair_model.solver = solver
     t_solution = pair_model.optimize(slim=True)
@@ -238,72 +241,8 @@ def optimize_pair_model(model_file_name, medium, solver=None):
                      index=pair_rate_columns)
 
 
-def get_exchange_reaction_ids(model_file_names):
-    """ Get the set of unique exchange reaction IDs and model IDs from a list of models.
-
-    Parameters
-    ----------
-    model_file_names : list of str
-        List of path names to model files
-
-    Returns
-    -------
-    set
-        Set of exchange reaction IDs in input models
-    list
-        List of model IDs from input models
-    """
-
-    all_exchange_reactions = set()
-    model_ids = list()
-    for name in model_file_names:
-        model = load_model(name)
-        model_ids.append(model.id)
-        exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
-        for rxn in exchange_reactions:
-            all_exchange_reactions.add(rxn.id)
-    return all_exchange_reactions, model_ids
-
-
-def make_diet_from_models(model_file_names, diet_file_name, bound=None):
-    """ Make a diet file from the exchange reactions in a list of models.
-
-    Parameters
-    ----------
-    model_file_names : list of str
-        List of path names to model files
-    diet_file_name : str
-        Path to file to store diet conditions in JSON format
-    bound : float, optional
-        Bound to set on every exchange reaction, when None use bound from first
-        model that contains exchange reaction
-    """
-
-    def get_active_bound(reaction):
-        """ For an active boundary reaction, return the relevant bound. """
-        if reaction.reactants:
-            return -reaction.lower_bound
-        elif reaction.products:
-            return reaction.upper_bound
-
-    if bound is not None:
-        bound = float(abs(bound))
-    diet = dict()
-    for name in model_file_names:
-        model = load_model(name)
-        exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
-        for rxn in exchange_reactions:
-            if rxn.id not in diet:
-                if bound is None:
-                    diet[rxn.id] = get_active_bound(rxn)
-                else:
-                    diet[rxn.id] = bound
-    json.dump(diet, open(diet_file_name, 'w'), indent=4)
-    return
-
-
-def make_medium(exchange_reactions, global_medium, compartment):
-    """ Create a medium for a model from a global medium.
+def make_medium(exchange_reactions, diet, compartment):
+    """ Create a medium for a model from a diet.
 
     A global medium is a dictionary of bounds for metabolites which is converted
     to exchange reactions that can be applied to a model.
@@ -312,8 +251,8 @@ def make_medium(exchange_reactions, global_medium, compartment):
     ----------
     exchange_reactions : cobra.core.DictList
         List of exchange reactions from a model
-    global_medium : dict  @todo call this a diet something or other
-        Dictionary of the bounds for each metabolite in an exchange reaction
+    diet : dict
+        Dictionary with base metabolite ID as key and bound as value
     compartment : str
         ID of compartment used as a suffix on exchange reaction IDs
 
@@ -329,7 +268,7 @@ def make_medium(exchange_reactions, global_medium, compartment):
         met = next(iter(iterkeys(rxn.metabolites)))
         met_id = re.sub(suffix, '', met.id)
         try:
-            medium[rxn.id] = global_medium[met_id]
+            medium[rxn.id] = diet[met_id]
         except KeyError:
             pass
     return medium
