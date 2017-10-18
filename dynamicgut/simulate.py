@@ -73,7 +73,7 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
                        for pair in pair_list]
         pair_file_names = [result.get() for result in result_list]
         pool.close()
-    logger.info('Finished creating two species community models')
+    logger.info('Finished creating %d two species community models', len(pair_file_names))
     return pair_file_names
 
 
@@ -133,16 +133,19 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     # species models that are not in the initial diet. This allows metabolites
     # produced by a species to become available in the diet conditions during the
     # simulation.
-    logger.info('Creating initial diet using exchange reactions from %d single species models', len(single_file_names))
+    logger.info('Reading initial diet from "%s"', diet_file_name)
     diet = json.load(open(diet_file_name))
-    model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
     initial_exchanges = set(iterkeys(diet))
+    logger.info('Getting metabolites from exchange reactions in %d single species models', len(single_file_names))
+    model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
     if initial_exchanges > model_exchanges:
         warn('Diet file "{0}" contains more exchange reactions than there are in single species models'
              .format(diet_file_name))
-    if model_exchanges.issuperset(initial_exchanges):
-        for met_id in (model_exchanges - initial_exchanges):
-            diet[met_id] = 0.0
+    missing_metabolites = model_exchanges - initial_exchanges
+    logger.info('Adding %d missing metabolites to initial diet', len(missing_metabolites))
+    for met_id in missing_metabolites:
+        diet[met_id] = 0.0
+        logger.debug('Added metabolite %s to initial diet', met_id)
     json.dump(diet, open(join(data_folder, 'initial-diet.json'), 'w'), indent=4)
 
     # Confirm the model IDs in the initial density file match the model IDs in the
@@ -258,15 +261,15 @@ def calculate_growth_rates(pair_file_names, current_diet, pair_rate_file_name, t
         if row['A_ID'] in alone_rate:
             if not np.isclose(row['A_ALONE'], alone_rate[row['A_ID']]):
                 inconsistent.add(row['A_ID'])
-                logger.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
-                            .format(time_point_id, row['A_ID'], row['A_ALONE'], alone_rate[row['A_ID']]))
+                # logger.debug('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
+                #              .format(time_point_id, row['A_ID'], row['A_ALONE'], alone_rate[row['A_ID']]))
         else:
             alone_rate[row['A_ID']] = row['A_ALONE']
         if row['B_ID'] in alone_rate:
             if not np.isclose(row['B_ALONE'], alone_rate[row['B_ID']]):
                 inconsistent.add(row['B_ID'])
-                logger.warn('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
-                            .format(time_point_id, row['B_ID'], row['B_ALONE'], alone_rate[row['B_ID']]))
+                # logger.debug('[{0}] Model {1} has inconsistent growth rates: {2} vs {3}'
+                #              .format(time_point_id, row['B_ID'], row['B_ALONE'], alone_rate[row['B_ID']]))
         else:
             alone_rate[row['B_ID']] = row['B_ALONE']
 
