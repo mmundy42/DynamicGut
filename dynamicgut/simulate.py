@@ -177,11 +177,13 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
         time_point_folder = join(data_folder, 'timepoint-' + time_point_id)
         if not exists(time_point_folder):
             makedirs(time_point_folder)
+        diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
+        json.dump(diet, open(diet_file_name, 'w'), indent=4)
         pair_rate_file_name = join(time_point_folder, 'pair-rates-{0}.csv'.format(time_point_id))
         effects_matrix_file_name = join(time_point_folder, 'effects-matrix-{0}.csv'.format(time_point_id))
         density_file_name = join(time_point_folder, 'density-{0}.csv'.format(time_point_id))
         single_rate_file_name = join(time_point_folder, 'single-rates-{0}.csv').format(time_point_id)
-        next_diet_file_name = join(time_point_folder, 'diet-{0}.json'.format(time_point_id))
+        next_diet_file_name = join(time_point_folder, 'next-diet-{0}.json'.format(time_point_id))
 
         # Calculate the growth rates for each two species model under the current diet conditions.
         growth_rates, alone = calculate_growth_rates(pair_file_names, diet, pair_rate_file_name,
@@ -451,7 +453,7 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
         Dictionary keyed by model ID of fluxes for exchange reactions
     """
 
-    logger.info('[%s] Optimizing single species models ...', time_point_id)
+    logger.info('[%s] Optimizing %d single species models ...', time_point_id, len(single_file_names))
 
     # Optimize all of the single species models on the current diet conditions.
     if n_processes is None:
@@ -510,8 +512,6 @@ def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name
     for species_id in exchange_fluxes:
         row = density.loc[density['MODEL_ID'] == species_id]
         for met_id in exchange_fluxes[species_id]:
-            # convert to metabolites here
-            # only have a rxn_id in exchange fluxes and not the reaction object which has the metabolite
             value = exchange_fluxes[species_id][met_id] * row.iloc[0]['DENSITY'] * time_step
             new_fluxes[met_id] += value
 

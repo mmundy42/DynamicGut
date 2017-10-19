@@ -75,6 +75,7 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
     """
 
     # Load, apply the medium, and optimize the model.
+    logger.debug('Optimizing single model "%s"', model_file_name)
     model = load_model(model_file_name)
     exchange_reactions = model.reactions.query(lambda x: x.startswith('EX_'), 'id')
     apply_medium(model, make_medium(exchange_reactions, diet, compartment))
@@ -96,6 +97,7 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
                 met = next(iter(iterkeys(rxn.metabolites)))
                 met_id = re.sub(suffix, '', met.id)
                 details['exchange_fluxes'][met_id] = solution.fluxes[rxn.id]
+    logger.debug('Model %s: %s %f', details['model_id'], details['status'], details['objective_value'])
     return details
 
 
@@ -189,7 +191,7 @@ def optimize_pair_model(model_file_name, diet, solver=None):
     """
 
     # Optimize the model the two species community model.
-    logger.debug('Optimizing pair model %s', model_file_name)
+    logger.debug('Optimizing pair model "%s"', model_file_name)
     pair_model = load_pickle(model_file_name)
     a_id = pair_model.taxonomy['id'][0]
     b_id = pair_model.taxonomy['id'][1]
