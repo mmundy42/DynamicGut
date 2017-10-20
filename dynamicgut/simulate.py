@@ -18,7 +18,7 @@ from .logger import logger
 # set_option('display.width', 1000)
 
 
-def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=None, solver=None):
+def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=None, solver=None, to_sbml=False):
     """ Prepare for simulation by creating two species community models.
 
     Parameters
@@ -32,7 +32,9 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
     n_processes: int, optional
         Number of processes in job pool or None to run without multiprocessing
     solver : str, optional
-        Name of solver to use for optimization or None to use default solver (glpk)
+        Name of solver to use for optimization or None to use default solver (most likely glpk)
+    to_sbml : boolean, optional
+        When True also save community model in SBML format
 
     Returns
     -------
@@ -65,11 +67,11 @@ def prepare(single_file_names, pair_model_folder, optimize=False, n_processes=No
     logger.info('Started creating two species community models')
     pair_list = [pair for pair in combinations(single_file_names, 2)]
     if n_processes is None:
-        pair_file_names = [create_pair_model(pair, pair_model_folder)
+        pair_file_names = [create_pair_model(pair, pair_model_folder, solver, to_sbml)
                            for pair in pair_list]
     else:
         pool = Pool(n_processes)
-        result_list = [pool.apply_async(create_pair_model, (pair, pair_model_folder))
+        result_list = [pool.apply_async(create_pair_model, (pair, pair_model_folder, solver, to_sbml))
                        for pair in pair_list]
         pair_file_names = [result.get() for result in result_list]
         pool.close()

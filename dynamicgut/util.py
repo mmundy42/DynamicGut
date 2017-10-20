@@ -106,7 +106,7 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
     return details
 
 
-def create_pair_model(pair, output_folder, to_sbml=False):
+def create_pair_model(pair, output_folder, solver=None, to_sbml=False):
     """ Create a two species community model.
 
     Parameters
@@ -115,6 +115,8 @@ def create_pair_model(pair, output_folder, to_sbml=False):
         Each element is a path to a single species model file
     output_folder : str
         Path to output folder where community model JSON file is saved
+    solver : str, optional
+        Name of solver to use for optimization or None to use default solver
     to_sbml : boolean, optional
         When True also save community model in SBML format
 
@@ -132,6 +134,8 @@ def create_pair_model(pair, output_folder, to_sbml=False):
     # Create a two species community model and save to a file.
     taxonomy = pd.DataFrame({"id": [model_a.id, model_b.id], "file": pair})
     community = Community(taxonomy, id=community_id, progress=False)
+    if solver is not None:
+        community.solver = solver
     community_file_name = join(output_folder, community.id + '.pickle')
     if to_sbml:
         write_sbml_model(community, join(output_folder, community.id + '.sbml'))
@@ -201,8 +205,6 @@ def optimize_pair_model(model_file_name, diet, solver=None):
     a_id = pair_model.taxonomy['id'][0]
     b_id = pair_model.taxonomy['id'][1]
     pair_model.medium = make_medium(pair_model.exchanges, diet, 'm')
-    if solver is not None:
-        pair_model.solver = solver
     pair_model.solver.configuration.timeout = SOLVER_TIME_LIMIT
     t_solution = pair_model.optimize(slim=True)
     a_alone = pair_model.optimize_single(a_id)  # @todo Check with Christian on slim
