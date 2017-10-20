@@ -1,8 +1,7 @@
 from os.path import join
-import json
 import pandas as pd
 import re
-from six import iteritems, iterkeys
+from six import iterkeys
 from collections import defaultdict
 
 from cobra.exceptions import OptimizationError
@@ -12,6 +11,7 @@ from micom import Community, load_pickle
 
 from .constants import pair_rate_columns, NO_GROWTH, ALMOST_ZERO, SOLVER_TIME_LIMIT
 from .logger import logger
+from .modelutil import make_medium, apply_medium
 
 
 def check_for_growth(model_file_name, solver=None):
@@ -33,9 +33,10 @@ def check_for_growth(model_file_name, solver=None):
     model = load_model(model_file_name)
     if solver is not None:
         model.solver = solver
+    model.solver.configuration.time_limit = SOLVER_TIME_LIMIT
     summary = {'grows': True, 'message': None}
     try:
-        value = model.slim_optimize()  # @todo use a timeout
+        value = model.slim_optimize()
         if value <= NO_GROWTH:
             summary['grows'] = False
             summary['message'] = 'Model {0} in file {1} does not produce growth under given conditions' \
@@ -85,7 +86,6 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
     solution = model.optimize()
 
     # Get the details on the solution.
-    # @todo Need to check for timeout
     details = dict()
     details['model_id'] = model.id
     details['status'] = solution.status
@@ -247,80 +247,3 @@ def optimize_pair_model(model_file_name, diet, solver=None):
     logger.debug('Model %s: %f %f %f %f', pair_model.id, a_together, a_alone, b_together, b_alone)
     return pd.Series([a_id, b_id, a_together, a_alone, a_effect, b_together, b_alone, b_effect],
                      index=pair_rate_columns)
-
-
-def make_medium(exchange_reactions, diet, compartment):
-    """ Create a medium for a model from a diet.
-
-    A global medium is a dictionary of bounds for metabolites which is converted
-    to exchange reactions that can be applied to a model.
-
-    Parameters
-    ----------
-    exchange_reactions : cobra.core.DictList
-        List of exchange reactions from a model
-    diet : dict
-        Dictionary with base metabolite ID as key and bound as value
-    compartment : str
-        ID of compartment used as a suffix on exchange reaction IDs
-
-    Returns
-    -------
-    dict
-        Dictionary of the bounds for exchange reactions in pair community model
-    """
-
-    suffix = re.compile(r'_([{}])$'.format(compartment))
-    medium = dict()
-    for rxn in exchange_reactions:
-        met = next(iter(iterkeys(rxn.metabolites)))
-        met_id = re.sub(suffix, '', met.id)
-        try:
-            medium[rxn.id] = diet[met_id]
-        except KeyError:
-            pass
-    return medium
-
-
-def apply_medium(model, medium):
-    """ Apply a medium to a model to set the metabolites that can be consumed.
-
-    This function is adapted from the cobra.core.Model.medium setter in cobra 0.6
-    with two differences: (1) if a reaction is in the medium but not in the
-    model, the reaction is ignored (2) when turning off reactions in the model
-    and not in the medium, only exchange reactions with the prefix `EX_` are
-    considered (instead of all boundary reactions).
-
-    Parameters
-    ----------
-    model : cobra.core.Model
-        Model to apply medium to
-    medium : dict
-        Dictionary with exchange reaction ID as key and bound as value
-    """
-
-    def set_active_bound(reaction, bound):
-        if reaction.reactants:
-            reaction.lower_bound = -bound
-        elif reaction.products:
-            reaction.upper_bound = bound
-
-    # Set the given media bounds.
-    medium_reactions = set()
-    for reaction_id, bound in iteritems(medium):
-        try:
-            reaction = model.reactions.get_by_id(reaction_id)
-            medium_reactions.add(reaction)
-            set_active_bound(reaction, bound)
-        except KeyError:
-            pass
-
-    # The boundary attribute of a cobra.core.Reaction also includes demand and
-    # sink reactions that we don't want turned off.
-    exchange_reactions = set(model.reactions.query(lambda x: x.startswith('EX_'), 'id'))
-
-    # Turn off reactions not present in medium.
-    for reaction in (exchange_reactions - medium_reactions):
-        set_active_bound(reaction, 0)
-
-    return

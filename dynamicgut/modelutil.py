@@ -3,7 +3,7 @@ from os.path import splitext, join
 import six.moves.cPickle as pickle
 from warnings import warn
 import json
-from six import iterkeys
+from six import iteritems, iterkeys
 import re
 
 import cobra.io as io
@@ -133,6 +133,83 @@ def make_diet_from_models(model_file_names, diet_file_name, bound=None):
                 else:
                     diet[rxn.id] = bound
     json.dump(diet, open(diet_file_name, 'w'), indent=4)
+    return
+
+
+def make_medium(exchange_reactions, diet, compartment):
+    """ Create a medium for a model from a diet.
+
+    A diet is a dictionary of bounds for metabolites which is converted to
+    exchange reactions that can be applied to a model.
+
+    Parameters
+    ----------
+    exchange_reactions : cobra.core.DictList
+        List of exchange reactions from a model
+    diet : dict
+        Dictionary with base metabolite ID as key and bound as value
+    compartment : str
+        ID of compartment used as a suffix on exchange reaction IDs
+
+    Returns
+    -------
+    dict
+        Dictionary of the bounds for exchange reactions in a model
+    """
+
+    suffix = re.compile(r'_([{}])$'.format(compartment))
+    medium = dict()
+    for rxn in exchange_reactions:
+        met = next(iter(iterkeys(rxn.metabolites)))
+        met_id = re.sub(suffix, '', met.id)
+        try:
+            medium[rxn.id] = diet[met_id]
+        except KeyError:
+            pass
+    return medium
+
+
+def apply_medium(model, medium):
+    """ Apply a medium to a model to set the metabolites that can be consumed.
+
+    This function is adapted from the cobra.core.Model.medium setter with two
+    differences: (1) if a reaction is in the medium but not in the model, the
+    reaction is ignored (2) when turning off reactions in the model and not in
+    the medium, only exchange reactions with the prefix `EX_` are considered
+    (instead of all boundary reactions).
+
+    Parameters
+    ----------
+    model : cobra.core.Model
+        Model to apply medium to
+    medium : dict
+        Dictionary with exchange reaction ID as key and bound as value
+    """
+
+    def set_active_bound(reaction, bound):
+        if reaction.reactants:
+            reaction.lower_bound = -bound
+        elif reaction.products:
+            reaction.upper_bound = bound
+
+    # Set the given media bounds.
+    medium_reactions = set()
+    for reaction_id, bound in iteritems(medium):
+        try:
+            reaction = model.reactions.get_by_id(reaction_id)
+            medium_reactions.add(reaction)
+            set_active_bound(reaction, bound)
+        except KeyError:
+            pass
+
+    # The boundary attribute of a cobra.core.Reaction also includes demand and
+    # sink reactions that we don't want turned off.
+    exchange_reactions = set(model.reactions.query(lambda x: x.startswith('EX_'), 'id'))
+
+    # Turn off reactions not present in medium.
+    for reaction in (exchange_reactions - medium_reactions):
+        set_active_bound(reaction, 0)
+
     return
 
 
