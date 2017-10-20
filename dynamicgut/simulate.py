@@ -10,7 +10,7 @@ from itertools import combinations
 from six import iterkeys
 
 from .util import check_for_growth, create_pair_model, optimize_single_model, optimize_pair_model
-from .modelutil import get_exchange_reaction_ids
+from .modelutil import get_exchange_metabolite_ids
 from .constants import single_rate_columns, pair_rate_columns, density_columns, NO_GROWTH
 from .logger import logger
 
@@ -137,7 +137,7 @@ def run_simulation(time_interval, single_file_names, pair_file_names, diet_file_
     diet = json.load(open(diet_file_name))
     initial_exchanges = set(iterkeys(diet))
     logger.info('Getting metabolites from exchange reactions in %d single species models', len(single_file_names))
-    model_exchanges, model_ids = get_exchange_reaction_ids(single_file_names)
+    model_exchanges, model_ids = get_exchange_metabolite_ids(single_file_names)
     if initial_exchanges > model_exchanges:
         warn('Diet file "{0}" contains more exchange reactions than there are in single species models'
              .format(diet_file_name))

@@ -67,8 +67,9 @@ def set_model_id_prefix(model_file_names, prefix='M'):
     return
 
 
-def get_exchange_reaction_ids(model_file_names, compartment='e'):
-    """ Get the set of unique exchange reaction IDs and model IDs from a list of models.
+def get_exchange_metabolite_ids(model_file_names, compartment='e'):
+    """ Get the set of unique metabolite IDs from exchange reactions and the
+        model IDs from a list of models.
 
     Parameters
     ----------
