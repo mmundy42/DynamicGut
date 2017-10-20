@@ -14,4 +14,4 @@ NO_GROWTH = 1e-13
 ALMOST_ZERO = 1e-25
 
 # Number of seconds to allow solver to run
-SOLVER_TIME_LIMIT = 300
+SOLVER_TIME_LIMIT = 30

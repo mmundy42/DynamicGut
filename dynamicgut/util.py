@@ -33,7 +33,7 @@ def check_for_growth(model_file_name, solver=None):
     model = load_model(model_file_name)
     if solver is not None:
         model.solver = solver
-    model.solver.configuration.time_limit = SOLVER_TIME_LIMIT
+    model.solver.configuration.timeout = SOLVER_TIME_LIMIT
     summary = {'grows': True, 'message': None}
     try:
         value = model.slim_optimize()
@@ -82,7 +82,7 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
     apply_medium(model, make_medium(exchange_reactions, diet, compartment))
     if solver is not None:
         model.solver = solver
-    model.solver.configuration.time_limit = SOLVER_TIME_LIMIT
+    model.solver.configuration.timeout = SOLVER_TIME_LIMIT
     solution = model.optimize()
 
     # Get the details on the solution.
@@ -203,7 +203,7 @@ def optimize_pair_model(model_file_name, diet, solver=None):
     pair_model.medium = make_medium(pair_model.exchanges, diet, 'm')
     if solver is not None:
         pair_model.solver = solver
-    pair_model.solver.configuration.time_limit = SOLVER_TIME_LIMIT
+    pair_model.solver.configuration.timeout = SOLVER_TIME_LIMIT
     t_solution = pair_model.optimize(slim=True)
     a_alone = pair_model.optimize_single(a_id)  # @todo Check with Christian on slim
     b_alone = pair_model.optimize_single(b_id)
