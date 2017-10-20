@@ -10,7 +10,7 @@ from cobra.io import write_sbml_model
 from micom.util import load_model
 from micom import Community, load_pickle
 
-from .constants import pair_rate_columns, NO_GROWTH, ALMOST_ZERO
+from .constants import pair_rate_columns, NO_GROWTH, ALMOST_ZERO, SOLVER_TIME_LIMIT
 from .logger import logger
 
 
@@ -81,7 +81,8 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
     apply_medium(model, make_medium(exchange_reactions, diet, compartment))
     if solver is not None:
         model.solver = solver
-    solution = model.optimize()  # @todo add timeout
+    model.solver.configuration.time_limit = SOLVER_TIME_LIMIT
+    solution = model.optimize()
 
     # Get the details on the solution.
     # @todo Need to check for timeout
@@ -97,6 +98,10 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
                 met = next(iter(iterkeys(rxn.metabolites)))
                 met_id = re.sub(suffix, '', met.id)
                 details['exchange_fluxes'][met_id] = solution.fluxes[rxn.id]
+    elif solution.status == 'time_limit':
+        logger.warn('Solver could not find a solution for model %s: %f',
+                    details['model_id'], details['objective_value'])
+        details['objective_value'] = 0.0
     logger.debug('Model %s: %s %f', details['model_id'], details['status'], details['objective_value'])
     return details
 
@@ -198,6 +203,7 @@ def optimize_pair_model(model_file_name, diet, solver=None):
     pair_model.medium = make_medium(pair_model.exchanges, diet, 'm')
     if solver is not None:
         pair_model.solver = solver
+    pair_model.solver.configuration.time_limit = SOLVER_TIME_LIMIT
     t_solution = pair_model.optimize(slim=True)
     a_alone = pair_model.optimize_single(a_id)  # @todo Check with Christian on slim
     b_alone = pair_model.optimize_single(b_id)

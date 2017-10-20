@@ -236,7 +236,8 @@ def calculate_growth_rates(pair_file_names, current_diet, pair_rate_file_name, t
         Single species growth rates
     """
 
-    logger.info('[%s] Optimizing %d two species community models ...', time_point_id, len(pair_file_names))
+    logger.info('[%s] Optimizing %d two species community models for interactions',
+                time_point_id, len(pair_file_names))
 
     # Optimize all of the two species community models on the current diet conditions.
     if n_processes is None:
@@ -301,7 +302,7 @@ def create_effects_matrix(pair_rate, effects_matrix_file_name, time_point_id):
         Effect of one species on the growth of another species
     """
 
-    logger.info('[%s] Creating effects matrix ...', time_point_id)
+    logger.info('[%s] Creating effects matrix', time_point_id)
 
     # Extract the species model IDs and effect values from the input data frame.
     a_id = pair_rate['A_ID'].tolist()
@@ -353,7 +354,7 @@ def leslie_gower(effects_matrix, current_density, density_file_name, time_point_
         Updated population densities for species in community
     """
 
-    logger.info('[%s] Calculating population densities ...', time_point_id)
+    logger.info('[%s] Calculating population densities', time_point_id)
 
     # Confirm that the order of the species in the effects matrix matches the
     # order in the density data frame.
@@ -453,7 +454,8 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
         Dictionary keyed by model ID of fluxes for exchange reactions
     """
 
-    logger.info('[%s] Optimizing %d single species models ...', time_point_id, len(single_file_names))
+    logger.info('[%s] Optimizing %d single species models for exchange fluxes',
+                time_point_id, len(single_file_names))
 
     # Optimize all of the single species models on the current diet conditions.
     if n_processes is None:
@@ -504,7 +506,7 @@ def create_next_diet(current_diet, exchange_fluxes, density, next_diet_file_name
         Dictionary with exchange reaction ID as key and bound as value
     """
 
-    logger.info('[%s] Calculating diet conditions for next time point ...', time_point_id)
+    logger.info('[%s] Calculating diet conditions for next time point', time_point_id)
 
     # Calculate consumption and production of every metabolite in the diet at
     # this time point, adjusted by the population density and time step.
