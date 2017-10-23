@@ -217,7 +217,7 @@ def optimize_pair_model(model_file_name, diet, solver=None):
         b_alone = 0.
 
     # Evaluate the interaction between the two species.
-    if t_solution.status == 'optimal':
+    if t_solution is not None and t_solution.status == 'optimal':
         a_together = t_solution.members.growth_rate[a_id]
         if a_together < NO_GROWTH:
             a_together = 0.
@@ -225,6 +225,7 @@ def optimize_pair_model(model_file_name, diet, solver=None):
         if b_together < NO_GROWTH:
             b_together = 0.
     else:
+        logger.debug('Model %s: no solution found', pair_model.id)
         a_together = 0.0
         b_together = 0.0
 
