@@ -99,16 +99,11 @@ def optimize_single_model(model_file_name, diet, compartment='e', solver=None):
                 met_id = re.sub(suffix, '', met.id)
                 details['exchange_fluxes'][met_id] = solution.fluxes[rxn.id]
     elif solution.status == 'infeasible':
-        logger.warn('Solver returned infeasible solution for model %s',
-                    details['model_id'])
         details['objective_value'] = 0.0
     elif solution.status == 'time_limit':
-        logger.warn('Solver timed out and could not find a solution for model %s: %f',
-                    details['model_id'], details['objective_value'])
         details['objective_value'] = 0.0
     else:
-        logger.warn('Unexpected solver status %s for model %s',
-                    details['status'], details['model_id'])
+        logger.warn('Unexpected solver status %s for model %s', details['status'], details['model_id'])
         details['objective_value'] = 0.0
     logger.debug('Model %s: %s %f', details['model_id'], details['status'], details['objective_value'])
     return details
@@ -233,7 +228,7 @@ def optimize_pair_model(model_file_name, diet, solver=None):
         if b_together < NO_GROWTH:
             b_together = 0.
     else:
-        logger.warn('Model %s: no solution found', pair_model.id)
+        logger.warn('Model %s: no solution found %s', pair_model.id, pair_model.solver.status)
         a_together = 0.0
         b_together = 0.0
 

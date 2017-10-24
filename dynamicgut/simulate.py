@@ -475,7 +475,8 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
     exchange_fluxes = dict()
     for details in detail_list:
         if details['objective_value'] < NO_GROWTH:
-            logger.warn('[%s] Model %s did not grow on current diet conditions', time_point_id, details['model_id'])
+            logger.warn('[%s] Model %s did not grow on current diet conditions: %s %f',
+                        time_point_id, details['model_id'], details['status'], details['objective_value'])
         exchange_fluxes[details['model_id']] = details['exchange_fluxes']
         rate = pd.Series([details['model_id'], details['status'], details['objective_value']],
                          index=single_rate_columns)
