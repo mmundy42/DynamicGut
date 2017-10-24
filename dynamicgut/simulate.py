@@ -255,6 +255,9 @@ def calculate_growth_rates(pair_file_names, current_diet, pair_rate_file_name, t
     # Build a DataFrame with the pair growth rates.
     pair_rate = pd.DataFrame(columns=pair_rate_columns)
     for rate in rate_list:
+        if rate['STATUS'] != 'optimal':
+            logger.warn('[%s] Pair model %s+%s did not grow on current diet conditions, status is %s',
+                        time_point_id, rate['A_ID'], rate['B_ID'], rate['STATUS'])
         pair_rate = pair_rate.append(rate, ignore_index=True)
     pair_rate.to_csv(pair_rate_file_name, index=False)
 
@@ -475,7 +478,7 @@ def get_exchange_fluxes(single_file_names, current_diet, single_rate_file_name, 
     exchange_fluxes = dict()
     for details in detail_list:
         if details['objective_value'] < NO_GROWTH:
-            logger.warn('[%s] Model %s did not grow on current diet conditions: %s %f',
+            logger.warn('[%s] Single model %s did not grow on current diet conditions: %s %f',
                         time_point_id, details['model_id'], details['status'], details['objective_value'])
         exchange_fluxes[details['model_id']] = details['exchange_fluxes']
         rate = pd.Series([details['model_id'], details['status'], details['objective_value']],
