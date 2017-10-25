@@ -9,7 +9,7 @@ from collections import defaultdict
 from itertools import combinations
 from six import iterkeys
 
-from .util import check_for_growth, create_pair_model, optimize_single_model, optimize_pair_model
+from .micomutil import check_for_growth, create_pair_model, optimize_single_model, optimize_pair_model
 from .modelutil import get_exchange_metabolite_ids
 from .constants import single_rate_columns, pair_rate_columns, density_columns, NO_GROWTH
 from .logger import logger
