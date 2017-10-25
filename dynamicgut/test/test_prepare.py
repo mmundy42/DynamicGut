@@ -39,6 +39,13 @@ class TestPrepare:
         assert len(pair_models) == 3
         rmtree(pair_folder)
 
+    def test_solver(self, data_folder, model_files, test_folder):
+        pair_folder = join(test_folder, 'pair_models')
+        single_models = [join(data_folder, m) for m in model_files]
+        pair_models = dynamicgut.prepare(single_models, pair_folder, solver='glpk')
+        assert len(pair_models) == 3
+        rmtree(pair_folder)
+
     def test_bad_single_path(self, data_folder, model_files, test_folder):
         pair_folder = join(test_folder, 'pair_models')
         single_models = [join(data_folder, m) for m in model_files]

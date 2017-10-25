@@ -240,14 +240,16 @@ def calculate_growth_rates(pair_file_names, current_diet, pair_rate_file_name, t
 
     logger.info('[%s] Optimizing %d two species community models for interactions',
                 time_point_id, len(pair_file_names))
+    if solver is not None:
+        logger.debug('[%s] Solver %s ignored with micom community models', time_point_id, solver)
 
     # Optimize all of the two species community models on the current diet conditions.
     if n_processes is None:
-        rate_list = [optimize_pair_model(file_name, current_diet, solver)
+        rate_list = [optimize_pair_model(file_name, current_diet)
                      for file_name in pair_file_names]
     else:
         pool = Pool(n_processes)
-        result_list = [pool.apply_async(optimize_pair_model, (file_name, current_diet, solver))
+        result_list = [pool.apply_async(optimize_pair_model, (file_name, current_diet))
                        for file_name in pair_file_names]
         rate_list = [result.get() for result in result_list]
         pool.close()

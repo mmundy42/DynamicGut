@@ -136,12 +136,10 @@ def create_pair_model(pair, output_folder, solver=None, to_sbml=False):
 
     # Create a two species community model and save to a file.
     taxonomy = pd.DataFrame({"id": [model_a.id, model_b.id], "file": pair})
-    community = Community(taxonomy, id=community_id, progress=False)
-    if solver is not None:
-        community.solver = solver
-    community_file_name = join(output_folder, community.id + '.pickle')
+    community = Community(taxonomy, id=community_id, progress=False, solver=solver)
     if to_sbml:
         write_sbml_model(community, join(output_folder, community.id + '.sbml'))
+    community_file_name = join(output_folder, community.id + '.pickle')
     community.to_pickle(community_file_name)
     return community_file_name
 
@@ -169,7 +167,7 @@ def map_single_to_pairs(pair_file_names):
     return single_to_pairs
 
 
-def optimize_pair_model(model_file_name, diet, solver=None):
+def optimize_pair_model(model_file_name, diet):
     """ Optimize a two species community model.
 
     This function can be used as a target function in a multiprocessing pool.
@@ -193,8 +191,6 @@ def optimize_pair_model(model_file_name, diet, solver=None):
         Path to two species community model file
     diet : dict
         Dictionary with base metabolite ID as key and bound as value
-    solver : str, optional
-        Name of solver to use for optimization or None to use default solver
 
     Returns
     -------
